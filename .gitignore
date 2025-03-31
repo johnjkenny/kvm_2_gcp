@@ -172,3 +172,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+
+kvm_2_gcp/k2g_env/keys/*
+!kvm_2_gcp/k2g_env/keys/__init__.py
+
+kvm_2_gcp/k2g_env/ansible/*
+!kvm_2_gcp/k2g_env/ansible/__init__.py

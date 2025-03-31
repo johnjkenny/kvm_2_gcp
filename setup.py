@@ -3,10 +3,10 @@ from setuptools import setup
 
 try:
     setup(
-        name='pkg-name',
+        name='kvm_2_gcp',
         version='1.0.0',
         entry_points={'console_scripts': [
-            'pkg-name = pkg_name.cli:pkg_parent',
+            'k2g = kvm_2_gcp.cli:k2g_parent',
         ]},
     )
     exit(0)

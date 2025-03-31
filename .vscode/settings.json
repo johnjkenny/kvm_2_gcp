@@ -1,8 +1,33 @@
 {
     "cSpell.words": [
+        "beautifulsoup",
+        "cdrom",
+        "cidata",
+        "creds",
+        "Fernet",
+        "genisoimage",
+        "getgrnam",
+        "getpwnam",
         "gmtime",
+        "keygen",
         "levelname",
+        "libvirtd",
+        "newgrp",
+        "noautoconsole",
+        "NOPASSWD",
+        "osinfo",
         "pycache",
-        "setuptools"
+        "qcow",
+        "runcmd",
+        "setfacl",
+        "setuptools",
+        "soupsieve",
+        "usermod",
+        "vcpus",
+        "virbr",
+        "virt",
+        "virtinst",
+        "virtio",
+        "xork"
     ]
 }

@@ -1,0 +1,19 @@
+#cloud-config
+
+users:
+  - name: <USER>
+    ssh_authorized_keys:
+      - <PUBLIC_KEY>
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    groups: sudo
+    shell: /bin/bash
+
+runcmd:
+  - mkdir -p /mnt/cdrom
+  - mount /dev/sr0 /mnt/cdrom
+  - cp /mnt/cdrom/startup.sh /root/startup.sh
+  - chmod +x /root/startup.sh
+  - /root/startup.sh
+  - umount /mnt/cdrom
+  - rmdir /mnt/cdrom
+  - rm -f /root/startup.sh
