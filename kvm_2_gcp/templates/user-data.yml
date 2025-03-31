@@ -1,12 +1,6 @@
 #cloud-config
 
-users:
-  - name: <USER>
-    ssh_authorized_keys:
-      - <PUBLIC_KEY>
-    sudo: "ALL=(ALL) NOPASSWD:ALL"
-    groups: sudo
-    shell: /bin/bash
+users: []
 
 runcmd:
   - mkdir -p /mnt/cdrom

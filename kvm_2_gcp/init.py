@@ -88,26 +88,25 @@ class Init(Utils):
     def __start_and_enable_libvirt(self) -> bool:
         return self._run_cmd('sudo systemctl enable --now libvirtd')[1]
 
-    def __set_directory_structure(self) -> bool:
-        for _dir in [self.image_dir, self.vm_dir, self.snapshot_dir, self.config_dir]:
-            try:
-                Path(_dir).mkdir(parents=True, exist_ok=True)
-            except Exception:
-                self.log.exception(f'Failed to create directory: {_dir}')
-                return False
-        return self.__set_directory_permissions()
-
     def __set_directory_permissions(self) -> bool:
         user = getpass.getuser()
-        for cmd in [f'chown -R {user}:{self.__group}', 'chmod -R 770', 'setfacl -d -m u::rwx', 'setfacl -d -m g::rwx',
+        if not self._run_cmd('sudo mkdir /k2g')[1]:
+            return False
+        for cmd in [f'chown -R {user}:{self.__group}', 'chmod -R 2770', 'setfacl -d -m u::rwx', 'setfacl -d -m g::rwx',
                     'setfacl -d -m o::0']:
             if not self._run_cmd(f'sudo {cmd} /k2g')[1]:
                 return False
-        return self.__set_user_to_libvirt_group(user)
+        return self.__set_user_to_libvirt_group(user) and self.__set_directory_structure()
 
     def __set_user_to_libvirt_group(self, user: str) -> bool:
         for cmd in [f'usermod -aG libvirt {user}']:
             if not self._run_cmd(f'sudo {cmd}')[1]:
+                return False
+        return True
+
+    def __set_directory_structure(self) -> bool:
+        for _dir in [self.image_dir, self.vm_dir, self.snapshot_dir, self.config_dir]:
+            if not self._run_cmd(f'mkdir -p {_dir}')[1]:
                 return False
         return True
 
@@ -133,7 +132,8 @@ class Init(Utils):
             bool: True on success, False otherwise
         """
         for method in [self.__create_env_key, self.__create_credentials, self.__install_kvm_dependencies,
-                       self.__start_and_enable_libvirt, self.__set_directory_structure, self.__create_ansible_ssh_keys]:
+                       self.__start_and_enable_libvirt, self.__set_directory_permissions,
+                       self.__create_ansible_ssh_keys]:
             if not method():
                 return False
         self.log.info('Successfully initialized KVM-2-GCP Environment')

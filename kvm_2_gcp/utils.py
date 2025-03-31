@@ -55,6 +55,28 @@ class Utils():
         return self.ansible_private_key + '.pub'
 
     @property
+    def ansible_dir(self) -> str:
+        """Get the path to the Ansible directory
+
+        Returns:
+            str: Path to the Ansible directory
+        """
+        return f'{Path(__file__).parent}/ansible'
+
+    @property
+    def ansible_env_vars(self) -> dict:
+        """Get Ansible environment variables
+
+        Returns:
+            dict: Ansible environment variables
+        """
+        return {
+            'ANSIBLE_CONFIG': f'{self.ansible_dir}/ansible.cfg',
+            'ANSIBLE_PYTHON_INTERPRETER': '/usr/bin/python3',
+            'ANSIBLE_PRIVATE_KEY_FILE': self.ansible_private_key,
+        }
+
+    @property
     def default_sa(self) -> str:
         """Get the default service account file path
 
