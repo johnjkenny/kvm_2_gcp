@@ -4,6 +4,8 @@ from kvm_2_gcp.arg_parser import ArgParser
 
 
 def parse_parent_args(args: dict):
+    if args.get('controller'):
+        return controller(args['controller'])
     if args.get('remoteImages'):
         return remote_images(args['remoteImages'])
     if args.get('images'):
@@ -43,6 +45,11 @@ def k2g_parent():
             'help': 'Build custom image and push to GCP',
             'nargs': REMAINDER
         },
+        'controller': {
+            'short': 'c',
+            'help': 'Controller (k2g-controller)',
+            'nargs': REMAINDER
+        }
     }).set_arguments()
     if not parse_parent_args(args):
         exit(1)
@@ -230,6 +237,69 @@ def deploy(parent_args: list = None):
         },
     }).set_arguments()
     if not parse_deploy_args(args):
+        exit(1)
+    exit(0)
+
+
+def parse_controller_args(args: dict):
+    from kvm_2_gcp.kvm_controller import KVMController
+    if args.get('start'):
+        return KVMController().start_vm(args['start'])
+    if args.get('stop'):
+        return KVMController().shutdown_vm(args['stop'])
+    if args.get('reboot'):
+        return KVMController().reboot_vm(args['reboot'])
+    if args.get('resetSoft'):
+        return KVMController().soft_reset_vm(args['resetSoft'])
+    if args.get('resetHard'):
+        return KVMController().hard_reset_vm(args['resetHard'])
+    if args.get('delete'):
+        return KVMController().delete_vm(args['delete'])
+    if args.get('list'):
+        return KVMController().list_vms()
+    if args.get('test'):
+        return KVMController().run_tests()
+    return True
+
+
+def controller(parent_args: list = None):
+    args = ArgParser('KVM-2-GCP KVM Controller', parent_args, {
+        'delete': {
+            'short': 'D',
+            'help': 'Delete virtual machine'
+        },
+        'force': {
+            'short': 'F',
+            'action': 'store_true',
+            'help': 'Force the action without prompting'
+        },
+        'list': {
+            'short': 'l',
+            'action': 'store_true',
+            'help': 'List virtual machines'
+        },
+        'reboot': {
+            'short': 'R',
+            'help': 'Reboot virtual machine'
+        },
+        'resetHard': {
+            'short': 'RH',
+            'help': 'Reset virtual machine forcefully'
+        },
+        'resetSoft': {
+            'short': 'RS',
+            'help': 'Reset virtual machine gently'
+        },
+        'start': {
+            'short': 's',
+            'help': 'Start virtual machine'
+        },
+        'stop': {
+            'short': 'S',
+            'help': 'Stop virtual machine'
+        },
+    }).set_arguments()
+    if not parse_controller_args(args):
         exit(1)
     exit(0)
 

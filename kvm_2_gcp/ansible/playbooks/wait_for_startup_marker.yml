@@ -1,0 +1,23 @@
+---
+- name: Wait for startup-done.marker on target VM
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Wait for startup script marker file
+      ansible.builtin.wait_for:
+        path: /var/log/startup-done.marker
+        state: present
+        timeout: 300
+        sleep: 5
+      register: wait_result
+      failed_when: false
+
+    - name: Fail if marker file was not found
+      ansible.builtin.fail:
+        msg: "Startup marker file was not found in time!"
+      when: wait_result.failed
+
+    - name: Success marker found
+      ansible.builtin.debug:
+        msg: "Startup completed — marker file detected."

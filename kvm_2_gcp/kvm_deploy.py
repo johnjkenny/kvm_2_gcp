@@ -1,15 +1,21 @@
 import getpass
+import socket
 from pathlib import Path
 from uuid import uuid4
 from logging import Logger
 from shutil import copy2
+from time import sleep
+
+import ansible_runner
+from yaml import safe_load, safe_dump
 
 from kvm_2_gcp.utils import Utils
+from kvm_2_gcp.kvm_controller import KVMController
 
 
 class KVMDeploy(Utils):
-    def __init__(self, name: str, image: str, cpu: int = 2, memory: int = 2048, is_build: bool = False,
-                 logger: Logger = None):
+    def __init__(self, name: str, image: str, cpu: int = 2, memory: int = 2048,
+                 playbook: str = 'wait_for_startup_marker.yml', add_user: bool = True, logger: Logger = None):
         super().__init__(logger)
         if name == 'GENERATE':
             name = f'vm-{uuid4().hex[:8]}'
@@ -18,15 +24,19 @@ class KVMDeploy(Utils):
         self.__cpu = cpu
         self.__memory = memory
         self.__deploy_dir = Path(f'{self.vm_dir}/{self.__name}')
-        if is_build:
-            self.__user = 'ansible'
-            self.__startup = 'build-startup'
-        else:
-            self.__user = getpass.getuser()
-            self.__startup = 'default-startup'
-            if self.__user == 'root':
-                self.log.warning('Cannot use root user for image. Using default ansible user')
-                self.__user = 'ansible'
+        self.__users = ['ansible']
+        self.__startup = 'default-startup'
+        self.__playbook = playbook
+        if add_user:
+            user = getpass.getuser()
+            if user == 'root':
+                self.log.warning('Cannot use root user for SSH. Using default ansible user for SSH access')
+            else:
+                self.__users.append(user)
+
+    @property
+    def controller(self):
+        return KVMController(self.log)
 
     @property
     def __boot_disk(self):
@@ -38,9 +48,10 @@ class KVMDeploy(Utils):
 
     @property
     def __create_cmd(self):
+        # Set os-variant to linux2022 for now, but create a parsing tool to get the os-variant from the image
         return f'''virt-install \
 --name={self.__name} \
---osinfo=detect=on,require=off \
+--os-variant=linux2022 \
 --ram={self.__memory} \
 --vcpus={self.__cpu} \
 --import \
@@ -50,27 +61,35 @@ class KVMDeploy(Utils):
 --graphics vnc,listen=0.0.0.0 \
 --noautoconsole'''
 
-    def __load_public_key(self, public_key_file: str):
+    def __create_user_cidata(self, user: str, public_key: str):
+        return {
+            'name': user,
+            'ssh_authorized_keys': [public_key],
+            'sudo': 'ALL=(ALL) NOPASSWD:ALL',
+            'groups': 'sudo',
+            'shell': '/bin/bash'
+        }
+
+    def __load_public_key(self, public_key_file: str, user: str) -> str:
         try:
             with open(public_key_file, 'r') as f:
                 public_key = f.read().strip()
-                if f'{self.__user}@' in public_key:
-                    return public_key.split(f'{self.__user}@')[0].strip() + f' {self.__user}'
+                if f'{user}@' in public_key:
+                    return public_key.split(f'{user}@')[0].strip() + f' {user}'
                 return public_key
         except Exception:
             self.log.exception(f'Failed to get public key {public_key_file}')
         return ''
 
-    def __get_user_public_key(self):
-        if self.__user == 'ansible':
-            return self.__load_public_key(self.ansible_public_key)
+    def __get_user_public_keys(self, user: str) -> str:
+        if user == 'ansible':
+            return self.__load_public_key(self.ansible_public_key, user)
         for key in ['id_rsa.pub', 'id_ed25519.pub']:
-            pub_file = Path(f'/home/{self.__user}/.ssh/{key}')
+            pub_file = Path(f'/home/{user}/.ssh/{key}')
             if pub_file.exists():
-                return self.__load_public_key(pub_file)
-        self.log.info(f'Failed to find public key for user {self.__user}. Using default ansible user')
-        self.__user = 'ansible'
-        return self.__load_public_key(self.ansible_public_key)
+                return self.__load_public_key(pub_file, user)
+        self.log.warning(f'Failed to find public key for user {user}. Use default ansible user for SSH access')
+        return ''
 
     def __create_vm_directory(self):
         if self.__deploy_dir.exists():
@@ -83,20 +102,30 @@ class KVMDeploy(Utils):
             self.log.exception(f'Failed to create VM directory {self.__deploy_dir}')
         return False
 
+    def __load_user_cidata(self) -> dict:
+        try:
+            with open(f'{self.template_dir}/user-data.yml', 'r') as f:
+                return safe_load(f)
+        except Exception:
+            self.log.exception('Failed to load user cidata')
+        return {}
+
+    def __save_user_cidata(self, cidata: dict):
+        try:
+            with open(f'{self.__deploy_dir}/iso/user-data', 'w') as f:
+                f.write("#cloud-config\n\n")
+                safe_dump(cidata, f, default_flow_style=False)
+            return True
+        except Exception:
+            self.log.exception('Failed to set user cidata')
+        return False
+
     def __set_user_cidata(self):
-        public_key_data = self.__get_user_public_key()
-        if public_key_data:
-            try:
-                with open(f'{self.template_dir}/user-data.yml', 'r') as f:
-                    data = f.read()
-                if data:
-                    data = data.replace('<USER>', self.__user).replace('<PUBLIC_KEY>', public_key_data)
-                    with open(f'{self.__deploy_dir}/iso/user-data', 'w') as f:
-                        f.write(data)
-                    return True
-                return False
-            except Exception:
-                self.log.exception('Failed to set user cidata')
+        cidata = self.__load_user_cidata()
+        if cidata:
+            for user in self.__users:
+                cidata['users'].append(self.__create_user_cidata(user, self.__get_user_public_keys(user)))
+            return self.__save_user_cidata(cidata)
         return False
 
     def __set_meta_cidata(self):
@@ -139,16 +168,98 @@ class KVMDeploy(Utils):
             self.log.error(f'Image {self.__image} not found')
         return False
 
+    def __is_port_open(self, ip: str, port: int = 22, timeout: int = 5, max_attempts: int = 12) -> bool:
+        """Check if a port is open on a given IP address. Will check for 1 minute before giving up with the default
+        timeout and max attempts set.
+
+        Args:
+            ip (str): ip address to check
+            port (int, optional): port to check. Defaults to 22.
+            timeout (int, optional): timeout between checks. Defaults to 5.
+            max_attempts (int, optional): max attempts before giving up. Defaults to 12
+
+        Returns:
+            bool: True if the port is open, False otherwise
+        """
+        self.display_info_msg(f'Waiting for {ip}:{port} to be open')
+        while max_attempts > 0:
+            try:
+                with socket.create_connection((ip, port), timeout=timeout):
+                    self.display_success_msg(f'{ip}:{port} is open, running Ansible playbook')
+                    return True
+            except (socket.timeout, ConnectionRefusedError, OSError):
+                self.display_warning_msg(f'{ip}:{port} is not open. Retrying in {timeout} seconds')
+                sleep(timeout)
+                max_attempts -= 1
+                continue
+        self.display_fail_msg('Failed to determine if port is open')
+        return False
+
+    def __create_ansible_client_directory(self, client_dir: Path, ip: str) -> bool:
+        """Create the Ansible client directory and inventory file
+
+        Args:
+            client_dir (Path): Path to the client directory
+            ip (str): client IP address
+
+        Returns:
+            bool: True on success, False otherwise
+        """
+        try:
+            Path.mkdir(client_dir, parents=True, exist_ok=True)
+            data = f"[all]\n{self.__name} ansible_host={ip}\n"
+            with open(f'{client_dir}/inventory.ini', 'w') as f:
+                f.write(data)
+            return True
+        except Exception:
+            self.log.exception('Failed to create client directory')
+            return False
+
+    def __run_ansible_playbook(self, ip: str) -> bool:
+        """Run the Ansible playbook to configure the VM. This will configure the VM with Docker and deploy app1
+
+        Args:
+            name (str): name of the VM
+            ip (str): IP address of the VM
+
+        Returns:
+            bool: True on success, False otherwise
+        """
+        client_dir = Path(f'{self.ansible_dir}/clients/{self.__name}')
+        self.__create_ansible_client_directory(client_dir, ip)
+        result = ansible_runner.run(
+            private_data_dir=client_dir.absolute(),
+            playbook=f'{self.ansible_dir}/playbooks/{self.__playbook}',
+            inventory=f'{client_dir}/inventory.ini',
+            artifact_dir=f'{client_dir}/artifacts',
+            envvars=self.ansible_env_vars)
+        if result.rc == 0:
+            return True
+        self.log.error(f'Failed to run Ansible playbook: {result.status}')
+        return False
+
+    def __cleanup_iso_data(self):
+        for delete in ['cidata.iso', 'iso']:
+            if not self._run_cmd(f'rm -rf {self.__deploy_dir}/{delete}')[1]:
+                return False
+        return True
+
+    def __display_vm_info(self, ip: str):
+        users = ', '.join(self.__users)
+        return self.display_success_msg(f'Successfully deployed VM {self.__name} IP: {ip} User Access: {users}')
+
     def __create_vm(self):
-        # ToDo: Add handling for vm startup script to be complete, run ansible if build is true
-        # clean up the build directory - eject the iso, delete the iso dir and delete the iso file
-        return self._run_cmd(self.__create_cmd)[1]
+        if self._run_cmd(self.__create_cmd)[1]:
+            ip = self.controller._wait_for_vm_init(self.__name)
+            if ip and self.__is_port_open(ip) and self.__run_ansible_playbook(ip):
+                if self.controller.eject_instance_iso(self.__name, True):
+                    return self.__cleanup_iso_data() and self.__display_vm_info(ip)
+        return False
 
     def deploy(self):
         for method in [self.__create_vm_directory, self.__create_vm_boot_disk, self.__set_user_cidata,
                        self.__set_meta_cidata, self.__set_startup_script, self.__create_cidata_iso, self.__create_vm]:
             if not method():
-                self.log.error(f'Failed to deploy VM {self.__name}: {method.__name__}')
+                self.log.error(f'Failed to deploy VM {self.__name}')
                 return False
-        # ToDO: Display VM info, IP, name, user, etc
         return True
