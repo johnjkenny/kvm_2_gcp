@@ -226,15 +226,6 @@ def deploy(parent_args: list = None):
             'type': int,
             'default': 2048
         },
-        'config': {
-            'short': 'C',
-            'help': 'Deploy using config file',
-        },
-        'force': {
-            'short': 'F',
-            'help': 'Force Delete Image',
-            'action': 'store_true'
-        },
     }).set_arguments()
     if not parse_deploy_args(args):
         exit(1)
@@ -243,35 +234,39 @@ def deploy(parent_args: list = None):
 
 def parse_controller_args(args: dict):
     from kvm_2_gcp.kvm_controller import KVMController
-    if args.get('start'):
-        return KVMController().start_vm(args['start'])
-    if args.get('stop'):
-        return KVMController().shutdown_vm(args['stop'])
-    if args.get('reboot'):
-        return KVMController().reboot_vm(args['reboot'])
-    if args.get('resetSoft'):
-        return KVMController().soft_reset_vm(args['resetSoft'])
-    if args.get('resetHard'):
-        return KVMController().hard_reset_vm(args['resetHard'])
-    if args.get('delete'):
-        return KVMController().delete_vm(args['delete'])
     if args.get('list'):
         return KVMController().list_vms()
-    if args.get('test'):
-        return KVMController().run_tests()
+    if not args.get('vm'):
+        return KVMController().display_fail_msg('VM name not specified. Please specify a VM name.')
+    if args.get('start'):
+        return KVMController().start_vm(args['vm'])
+    if args.get('stop'):
+        return KVMController().shutdown_vm(args['vm'])
+    if args.get('reboot'):
+        return KVMController().reboot_vm(args['vm'])
+    if args.get('resetSoft'):
+        return KVMController().soft_reset_vm(args['vm'])
+    if args.get('resetHard'):
+        return KVMController().hard_reset_vm(args['vm'])
+    if args.get('delete'):
+        return KVMController().delete_vm(args['vm'])
+    if args.get('networks'):
+        return network(args['vm'], args['networks'])
+    if args.get('disks'):
+        return disks(args['vm'], args['disks'])
     return True
 
 
 def controller(parent_args: list = None):
     args = ArgParser('KVM-2-GCP KVM Controller', parent_args, {
+        'vm': {
+            'short': 'v',
+            'help': 'Virtual machine name',
+        },
         'delete': {
             'short': 'D',
-            'help': 'Delete virtual machine'
-        },
-        'force': {
-            'short': 'F',
-            'action': 'store_true',
-            'help': 'Force the action without prompting'
+            'help': 'Delete virtual machine',
+            'action': 'store_true'
         },
         'list': {
             'short': 'l',
@@ -280,23 +275,38 @@ def controller(parent_args: list = None):
         },
         'reboot': {
             'short': 'R',
-            'help': 'Reboot virtual machine'
+            'help': 'Reboot virtual machine',
+            'action': 'store_true'
         },
         'resetHard': {
             'short': 'RH',
-            'help': 'Reset virtual machine forcefully'
+            'help': 'Reset virtual machine forcefully',
+            'action': 'store_true'
         },
         'resetSoft': {
             'short': 'RS',
-            'help': 'Reset virtual machine gently'
+            'help': 'Reset virtual machine gently',
+            'action': 'store_true'
         },
         'start': {
             'short': 's',
-            'help': 'Start virtual machine'
+            'help': 'Start virtual machine',
+            'action': 'store_true'
         },
         'stop': {
             'short': 'S',
-            'help': 'Stop virtual machine'
+            'help': 'Stop virtual machine',
+            'action': 'store_true'
+        },
+        'networks': {
+            'short': 'n',
+            'help': 'Virtual machine network interface handling',
+            'nargs': REMAINDER
+        },
+        'disks': {
+            'short': 'd',
+            'help': 'Virtual machine disk handling',
+            'nargs': REMAINDER
         },
     }).set_arguments()
     if not parse_controller_args(args):
@@ -304,22 +314,109 @@ def controller(parent_args: list = None):
     exit(0)
 
 
-'''
-The difference between deploy and build:
-deploy uses a specific instructions file to deploy the image
+def parse_network_args(vm_name: str, args: dict):
+    from kvm_2_gcp.kvm_controller import KVMController
+    if args.get('list'):
+        return KVMController().display_vm_interfaces(vm_name)
+    if args.get('add'):
+        return KVMController().add_network_interface(vm_name)
+    if args.get('remove'):
+        KVMController().remove_network_interface(vm_name, args['remove'])
+    return True
 
-build uses the ansible name and uses ansible to build the system to playbooks
+
+def network(vm_name: str, parent_args: list = None):
+    args = ArgParser('KVM-2-GCP KVM Network', parent_args, {
+        'list': {
+            'short': 'l',
+            'help': 'List virtual machine network interfaces',
+            'action': 'store_true'
+        },
+        'add': {
+            'short': 'a',
+            'help': 'Add network interface to virtual machine',
+            'action': 'store_true'
+        },
+        'remove': {
+            'short': 'r',
+            'help': 'Remove network interface from virtual machine (specify MAC address)',
+        }
+    }).set_arguments()
+    if not parse_network_args(vm_name, args):
+        exit(1)
+    exit(0)
 
 
-Demo example:
+def parse_disk_args(vm_name: str, args: dict):
+    from kvm_2_gcp.kvm_controller import KVMController
+    if args.get('list'):
+        return KVMController().display_vm_disks(vm_name)
+    if args.get('add'):
+        return KVMController().create_data_disk(vm_name, args['size'], args['name'], args['filesystem'],
+                                                args['mountPoint'])
+    if args.get('remove'):
+        return KVMController().remove_data_disk(vm_name, args['remove'], args['force'])
+    if args.get('unmount'):
+        return KVMController().unmount_system_disk(vm_name, args['unmount'])
+    if args.get('remount'):
+        return KVMController().mount_system_disk(vm_name, args['remount'], args['mountPoint'])
+    return True
 
-download rocky9.5 cloud image .qcow2
-deploy the image using instructions file
 
-build a custom image using ansible playbook
-
-upload the image to gcp project images/bucket
-
-deploy a gcp vm using the newly created image
-
-'''
+def disks(vm_name: str, parent_args: list = None):
+    args = ArgParser('KVM-2-GCP KVM Disks', parent_args, {
+        'list': {
+            'short': 'l',
+            'help': 'List virtual machine disks',
+            'action': 'store_true'
+        },
+        'add': {
+            'short': 'a',
+            'help': 'Add disk to virtual machine',
+            'action': 'store_true'
+        },
+        'remove': {
+            'short': 'R',
+            'help': 'Remove disk from virtual machine (specify device target e.g. sdb)',
+        },
+        'name': {
+            'short': 'n',
+            'help': 'Name of the disk. Default: GENERATE (data-<unique_id>)',
+            'default': 'GENERATE'
+        },
+        'mountPoint': {
+            'short': 'm',
+            'help': 'Mount point of the disk. Default: /mnt/<disk_name>',
+            'default': 'default'
+        },
+        'unmount': {
+            'short': 'u',
+            'help': 'Unmount a disk device (specify device target e.g. sdb)',
+        },
+        'remount': {
+            'short': 'r',
+            'help': 'Remount a disk device (specify device target e.g. sdb)',
+        },
+        'filesystem': {
+            'short': 'f',
+            'help': 'Filesystem type. Default: ext4',
+            'default': 'ext4',
+        },
+        'force': {
+            'short': 'F',
+            'help': 'Force action',
+            'action': 'store_true'
+        },
+        'size': {
+            'short': 's',
+            'help': 'Disk size. Default: 1GB',
+            'default': '1GB',
+        },
+        'resize': {
+            'short': 'rs',
+            'help': 'Resize disk. Specify disk device target e.g. sdb',
+        }
+    }).set_arguments()
+    if not parse_disk_args(vm_name, args):
+        exit(1)
+    exit(0)

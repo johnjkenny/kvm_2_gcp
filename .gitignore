@@ -179,3 +179,5 @@ kvm_2_gcp/k2g_env/keys/*
 
 kvm_2_gcp/ansible/clients/*
 !kvm_2_gcp/ansible/clients/*__init__.py
+
+.ansible/

@@ -1,0 +1,33 @@
+---
+- name: Unmount disk
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    device: ""
+
+  tasks:
+    - name: Get list of mounted devices
+      ansible.builtin.command: mount
+      register: mount_output
+      changed_when: false
+
+    - name: Find mount point for device
+      ansible.builtin.set_fact:
+        target_mount: "{{ item.split(' ')[2] }}"
+      loop: "{{ mount_output.stdout_lines }}"
+      when: item.startswith(device)
+      vars:
+        target_mount: ""
+
+    - name: Unmount the device
+      ansible.posix.mount:
+        path: "{{ target_mount }}"
+        state: unmounted
+      when: target_mount is defined and target_mount != ""
+
+    - name: Remove fstab entry
+      ansible.posix.mount:
+        path: "{{ target_mount }}"
+        state: absent
+      when: target_mount is defined and target_mount != ""

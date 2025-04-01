@@ -1,0 +1,5 @@
+---
+- name: Format disk with filesystem
+  import_playbook: ./format_disk.yml
+- name: Mount disk
+  import_playbook: ./mount_disk.yml
