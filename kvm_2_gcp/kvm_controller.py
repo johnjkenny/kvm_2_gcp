@@ -4,6 +4,8 @@ from logging import Logger
 from time import sleep
 from pathlib import Path
 from uuid import uuid4
+from os import remove
+from xml.etree import ElementTree
 
 from kvm_2_gcp.utils import Utils
 
@@ -12,20 +14,40 @@ class KVMController(Utils):
     def __init__(self, logger: Logger = None):
         super().__init__(logger=logger)
 
-    def __instance_exists(self, vm_name: str, instance: list = None) -> bool:
-        """Check if a VM instance exists on the hypervisor. It will return True if the instance exists and False
+    @property
+    def __new_network_data(self):
+        return '''<interface type='bridge'>
+  <source bridge='virbr0'/>
+  <model type='virtio'/>
+</interface>'''
+
+    def __remove_network_data(self, mac: str):
+        return f'''<interface type="bridge">
+  <mac address="{mac}"/>
+  <source bridge='virbr0'/>
+  <model type="virtio"/>
+</interface>'''
+
+    def __remove_disk_data(self, disk_location: str, target: str):
+        return f'''<disk type='file' device='disk'>
+  <source file='{disk_location}'/>
+  <target dev='{target}' bus='scsi'/>
+</disk>'''
+
+    def __instance_exists(self, vm_name: str, vms: list = None) -> bool:
+        """Check if a VM exists on the hypervisor. It will return True if the vm exists and False
         otherwise.
 
         Args:
             vm_name (str): name of the VM to check if it exists
-            instance (list, optional): list of instances to check. Defaults to None.
+            vms (list, optional): list of vms to check. Defaults to None.
 
         Returns:
-            bool: True if the instance exists, False otherwise
+            bool: True if the vm exists, False otherwise
         """
-        if instance is None:
-            instance = self.get_instances()
-        return vm_name in instance['running'] or vm_name in instance['stopped'] or vm_name in instance['paused']
+        if vms is None:
+            vms = self.get_instances()
+        return vm_name in vms['running'] or vm_name in vms['stopped'] or vm_name in vms['paused']
 
     def __delete_vm_directory(self, vm_name: str) -> bool:
         dir_name = Path(f'{self.vm_dir}/{vm_name}')
@@ -121,20 +143,19 @@ class KVMController(Utils):
         return 0
 
     def __create_data_disk(self, vm_name: str, size: int | str, name: str = 'GENERATE'):
-        self.log.info(f'Creating data disk for VM {vm_name}')
         size = self.__convert_size_to_bytes(size)
         if not size:
             return False
-        vm_dir = f'{self.vm_dir}/{vm_name}'
         name = name if name != 'GENERATE' else 'data-' + uuid4().hex[:8]
-        disk_name = f'{vm_dir}/{name}.qcow2'
+        disk_name = f'{self.vm_dir}/{vm_name}/{name}.qcow2'
         if self._run_cmd(f'qemu-img create -f qcow2 {disk_name} {size}')[1]:
+            self.log.info(f'Successfully created data disk {disk_name} for {vm_name}')
             return disk_name
-        self.log.error('Failed to create data disk')
+        self.log.error(f'Failed to create data disk {disk_name} for {vm_name}')
         return ''
 
     def __find_next_vm_target_disk(self, vm_name: str):
-        disks = self.get_instance_disks(vm_name)
+        disks = self.get_vm_disks(vm_name)
         if disks:
             targets = list(disks.keys())
             targets.sort()
@@ -145,20 +166,20 @@ class KVMController(Utils):
             return last_target[:-1] + chr(ord(last_target[-1]) + 1)
         return 'sda'
 
-    def __attach_data_disk(self, vm_name: str, disk_name: str) -> bool:
-        self.log.info(f'Attaching data disk {disk_name} to VM {vm_name}')
-        serial = disk_name.split('/')[-1].split('.')[0]
+    def __attach_data_disk(self, vm_name: str, disk_name: str, vms: dict) -> str:
+        serial = f'{vm_name}-{disk_name.split("/")[-1].split(".")[0]}'
         target = self.__find_next_vm_target_disk(vm_name)
         if not target:
-            self.log.error('Failed to find target for data disk')
+            self.log.error(f'Failed to find target for data disk {disk_name} on {vm_name}')
             return False
-        live = ' --live' if self.is_vm_running(vm_name) else ''
+        live = ' --live' if vm_name in vms.get('running', []) else ''
         cmd = f'virsh attach-disk {vm_name} {disk_name} --driver qemu --subdriver qcow2 --cache none --serial {serial}'
         cmd += f' --target {target} --targetbus scsi{live} --persistent'
         if self._run_cmd(cmd)[1]:
-            return True
-        self.log.error('Failed to attach data disk to vm')
-        return False
+            self.log.info(f'Successfully attached data disk {disk_name} to {vm_name}')
+            return target
+        self.log.error(f'Failed to attach data disk {disk_name} to {vm_name}')
+        return ''
 
     def __remove_instance_cdrom(self, vm_name: str, target: str) -> bool:
         live = ' --live' if self.is_vm_running(vm_name) else ''
@@ -410,7 +431,48 @@ class KVMController(Utils):
         """
         return self.get_instances().get('paused', [])
 
-    def get_instance_disks(self, vm_name: str) -> dict:
+    def get_vm_disk_capacity(self, vm_name: str, disk_name: str):
+        rsp = self._run_cmd(f'virsh domblkinfo {vm_name} {disk_name}')
+        if rsp[1]:
+            for line in rsp[0].splitlines():
+                if 'Capacity:' in line:
+                    try:
+                        return int(line.split(':')[-1].strip())
+                    except Exception:
+                        self.log.exception(f'Failed to convert disk capacity to int for {disk_name} on {vm_name}')
+                        return 0
+        self.log.error(f'Failed to get disk capacity for {disk_name} on {vm_name}')
+        return 0
+
+    def __bytes_to_human_readable(self, unit: int | float, unit_index: int = 0, base: int = 1024):
+        """Convert unit to human readable format. Default options convert bytes to binary units. Unit 2048 will be
+        converted to 2 KiB. Use a higher unit_index to convert larger units to smaller units. For example,
+        unit_index = 1 will convert 2048 unit to 2 MiB (2048 KiB = 2 MiB).
+
+        Args:
+            num_bytes (int | float): bytes to convert
+            unit_index (int, optional): The starting index for the conversion. Defaults to 0.
+                0 = B, 1 = KiB, 2 = MiB, 3 = GiB, 4 = TiB, 5 = PiB
+            base (int, optional): the base to use for conversion. Defaults to 1024 (binary, ex: GiB).
+
+        Returns:
+            str: human readable unit conversion to 3 decimal places or original bytes on failure
+        """
+        suffixes = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']
+        try:
+            num = float(unit)
+            while num >= base and unit_index < len(suffixes) - 1:
+                num /= 1024.0
+                unit_index += 1
+            suffix = suffixes[unit_index] if base == 1024 else suffixes[unit_index].replace('i', '')
+            if num.is_integer():
+                return f"{int(num)} {suffix}"
+            return f"{num:.3f} {suffix}"
+        except Exception:
+            self.log.exception('Failed to convert bytes to human readable format')
+        return f'{unit}'
+
+    def get_vm_disks(self, vm_name: str) -> dict:
         """Get the disks attached to a VM using the virsh domblklist command. It will return a dictionary of disks with
         the target as the key and the source as the value
 
@@ -426,11 +488,17 @@ class KVMController(Utils):
             for line in rsp[0].splitlines():
                 if '/' in line:
                     info = line.split()
-                    disks[info[0]] = info[1]
+                    size = self.get_vm_disk_capacity(vm_name, info[0])
+                    disks[info[0]] = {
+                        'location': info[1],
+                        'serial': f'{vm_name}-{info[1].split("/")[-1].split(".")[0]}',
+                        'size_bytes': size,
+                        'size': self.__bytes_to_human_readable(size),
+                    }
         return disks
 
     def eject_instance_iso(self, vm_name: str, remove_cdrom: bool = True) -> bool:
-        disks: dict = self.get_instance_disks(vm_name)
+        disks: dict = self.get_vm_disks(vm_name)
         for target, source in disks.items():
             if source.endswith('.iso'):
                 if self._run_cmd(f'virsh change-media {vm_name} {target} --eject --config')[1]:
@@ -445,10 +513,26 @@ class KVMController(Utils):
         # ToDo: Create method to detach live disk from vm
         pass
 
-    def create_data_disk(self, vm_name: str, size: bytes | str, name: str = 'GENERATE') -> bool:
+    def create_data_disk(self, vm_name: str, size: int | str, name: str = 'GENERATE', filesystem: str = 'ext4',
+                         mount: str = 'default') -> bool:
         disk_name = self.__create_data_disk(vm_name, size, name)
         if disk_name:
-            return self.__attach_data_disk(vm_name, disk_name)
+            vms = self.get_instances()
+            target = self.__attach_data_disk(vm_name, disk_name, vms)
+            if target:
+                if vm_name in vms.get('running', []):
+                    mount = mount if mount != 'default' else f'/mnt/{disk_name.split("/")[-1].split(".")[0]}'
+                    ip = self.get_vm_ip_by_interface_name(vm_name)
+                    if ip:
+                        data = {'device': f'/dev/{target}', 'filesystem': filesystem, 'mount': mount}
+                        if self.run_ansible_playbook(ip, vm_name, 'format_and_mount_data_disk.yml', data):
+                            self.log.info(f'Successfully formatted and mounted {disk_name} on {vm_name}')
+                            return True
+                    else:
+                        self.log.error(f'Failed to get IP address to run ansible playbook on {vm_name}')
+                        return False
+                self.log.info(f'Successfully attached {disk_name} to {vm_name}, but did not format or mount it')
+                return True
         return False
 
     def get_vm_interfaces(self, vm_name: str):
@@ -466,11 +550,11 @@ class KVMController(Utils):
                     if 'name' in key:
                         interfaces[num]['name'] = value
                     elif 'hwaddr' in key:
-                        interfaces[num]['hwaddr'] = value
+                        interfaces[num]['mac'] = value
                     elif '0.addr' in key:
-                        interfaces[num]['address'] = value
+                        interfaces[num]['ip'] = value
                     elif '0.prefix' in key:
-                        interfaces[num]['prefix'] = value
+                        interfaces[num]['subnet'] = '/' + value
         return interfaces
 
     def get_eth_interfaces(self, vm_name: str):
@@ -481,8 +565,32 @@ class KVMController(Utils):
                 eth[num] = interface
         return eth
 
-    def display_vm_interfaces(self, vm_name: str):
-        return self.display_info_msg(json.dumps(self.get_eth_interfaces(vm_name), indent=2))
+    def __get_shutdown_vm_interfaces(self, vm_name: str):
+        interfaces = {}
+        rsp = self._run_cmd(f'virsh dumpxml {vm_name}')
+        if rsp[1]:
+            root = ElementTree.fromstring(rsp[0])
+            cnt = 1
+            for iface in root.findall(".//devices/interface"):
+                interfaces[cnt] = {}
+                mac_elem = iface.find('mac')
+                source = iface.find('source')
+                model = iface.find('model')
+                if mac_elem is not None:
+                    interfaces[cnt]['mac'] = mac_elem.get('address')
+                if source is not None:
+                    interfaces[cnt]['source'] = source.get('bridge')
+                if model is not None:
+                    interfaces[cnt]['model'] = model.get('type')
+                cnt += 1
+        return interfaces
+
+    def display_vm_interfaces(self, vm_name: str, instances: dict = None):
+        if not instances:
+            instances = self.get_instances()
+        if vm_name in instances.get('running', []):
+            return self.display_info_msg(json.dumps(self.get_eth_interfaces(vm_name), indent=2))
+        return self.display_info_msg(json.dumps(self.__get_shutdown_vm_interfaces(vm_name), indent=2))
 
     def get_vm_ip_by_interface_name(self, vm_name: str, interface_name: str = 'eth0'):
         """Get the IP address of a VM using the virsh guestinfo command. This will return the IP address of the VM
@@ -500,7 +608,7 @@ class KVMController(Utils):
         interfaces = self.get_eth_interfaces(vm_name)
         for interface in interfaces.values():
             if interface.get('name') == interface_name:
-                return interface.get('address')
+                return interface.get('ip', '')
         return ''
 
     def __display_vm_is_up(self, vm_name: str, ignore_error: bool = False) -> str:
@@ -526,3 +634,178 @@ class KVMController(Utils):
                     return False
                 self.log.error(f'Invalid IP address for {vm_name}: {ip}')
         return ''
+
+    def __create_add_network_file(self, vm_name: str):
+        config_file = f'{self.vm_dir}/{vm_name}/add-network.xml'
+        try:
+            with open(config_file, 'w') as file:
+                file.write(self.__new_network_data + '\n')
+            return config_file
+        except Exception:
+            self.log.exception(f'Failed to create network interface file {config_file}')
+        return ''
+
+    def __create_remove_network_file(self, vm_name: str, mac: str):
+        config_file = f'{self.vm_dir}/{vm_name}/remove-network.xml'
+        try:
+            with open(config_file, 'w') as file:
+                file.write(self.__remove_network_data(mac) + '\n')
+            return config_file
+        except Exception:
+            self.log.exception(f'Failed to create network remove file {config_file}')
+        return ''
+
+    def __create_remove_disk_file(self, vm_name: str, disk_location: str, target: str):
+        config_file = f'{self.vm_dir}/{vm_name}/remove-disk.xml'
+        try:
+            with open(config_file, 'w') as file:
+                file.write(self.__remove_disk_data(disk_location, target) + '\n')
+            return config_file
+        except Exception:
+            self.log.exception(f'Failed to create disk remove file {config_file}')
+        return ''
+
+    def __remove_config_file(self, config_file: str):
+        try:
+            remove(config_file)
+            return True
+        except Exception:
+            self.log.exception(f'Failed to remove file {config_file}')
+        return False
+
+    def __attach_device(self, vm_name: str, config_file: str, instances: dict = None):
+        if not instances:
+            instances = self.get_instances()
+        live = ' --live --persistent' if vm_name in instances.get('running', []) else ''
+        return self._run_cmd(f'virsh attach-device {vm_name} {config_file} --config{live}')[1]
+
+    def __detach_device(self, vm_name: str, config_file: str, instances: dict = None):
+        if not instances:
+            instances = self.get_instances()
+        live = ' --live --persistent' if vm_name in instances.get('running', []) else ''
+        return self._run_cmd(f'virsh detach-device {vm_name} {config_file} --config{live}')[1]
+
+    def add_network_interface(self, vm_name: str):
+        instances = self.get_instances()
+        if not self.__instance_exists(vm_name, instances):
+            self.log.error(f'VM {vm_name} does not exist')
+            return False
+        network_file = self.__create_add_network_file(vm_name)
+        if network_file and self.__attach_device(vm_name, network_file, instances):
+            if self.__remove_config_file(network_file):
+                if vm_name in instances.get('running', []):
+                    sleep(15)  # give time for IP address to populate
+                self.log.info(f'Successfully attached network interface to {vm_name}')
+                return self.display_vm_interfaces(vm_name, instances)
+        self.log.error(f'Failed to attach network interface to {vm_name}')
+        return False
+
+    def remove_network_interface(self, vm_name: str, mac: str):
+        instances = self.get_instances()
+        if not self.__instance_exists(vm_name, instances):
+            self.log.error(f'VM {vm_name} does not exist')
+            return False
+        network_file = self.__create_remove_network_file(vm_name, mac)
+        if network_file and self.__detach_device(vm_name, network_file, instances):
+            if self.__remove_config_file(network_file):
+                self.log.info(f'Successfully removed network interface from {vm_name}')
+                return self.display_vm_interfaces(vm_name, instances)
+        self.log.error(f'Failed to attach network interface to {vm_name}')
+        return False
+
+    def display_vm_disks(self, vm_name: str):
+        """Display the disks attached to a VM using the virsh domblklist command. This will display the disks in a
+        table format with the target and source.
+
+        Args:
+            vm_name (str): name of the vm get the disks for
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        return self.display_info_msg(json.dumps(self.get_vm_disks(vm_name), indent=2))
+
+    def __unmount_system_disk(self, vm_name: str, device: str):
+        ip = self.get_vm_ip_by_interface_name(vm_name)
+        if ip:
+            if self.run_ansible_playbook(ip, vm_name, 'unmount_disk.yml', {'device': f'/dev/{device}'}):
+                self.log.info(f'Successfully unmounted {device} on {vm_name}')
+                return True
+            self.log.error(f'Failed to unmount {device} on {vm_name}')
+        else:
+            self.log.error(f'Failed to get IP address to unmount {device} on {vm_name}')
+        return False
+
+    def unmount_system_disk(self, vm_name: str, device: str):
+        if device == 'sda':
+            self.log.error('Cannot unmount system boot disk')
+            return False
+        disks = self.get_vm_disks(vm_name)
+        if device in disks:
+            if vm_name in self.get_instances().get('running', []):
+                return self.__unmount_system_disk(vm_name, device)
+            self.log.error(f'VM {vm_name} is not running')
+        else:
+            self.log.error(f'Disk {device} not found on {vm_name}')
+        return False
+
+    def __mount_system_disk(self, vm_name: str, device: str, mount: str):
+        ip = self.get_vm_ip_by_interface_name(vm_name)
+        if ip:
+            if self.run_ansible_playbook(ip, vm_name, 'mount_disk.yml', {'device': f'/dev/{device}', 'mount': mount}):
+                self.log.info(f'Successfully mounted {device} on {vm_name}')
+                return True
+            self.log.error(f'Failed to mount {device} on {vm_name}')
+        else:
+            self.log.error(f'Failed to get IP address to mount {device} on {vm_name}')
+        return False
+
+    def mount_system_disk(self, vm_name: str, device: str, mount: str):
+        if device == 'sda':
+            self.log.error('Cannot mount system boot disk')
+            return False
+        disks = self.get_vm_disks(vm_name)
+        if device in disks:
+            device_loc = disks[device].get('location')
+            mount = mount if mount != 'default' else f'/mnt/{device_loc.split("/")[-1].split(".")[0]}'
+            if vm_name in self.get_instances().get('running', []):
+                return self.__mount_system_disk(vm_name, device, mount)
+            self.log.error(f'VM {vm_name} is not running')
+        else:
+            self.log.error(f'Disk {device} not found on {vm_name}')
+        return False
+
+    def __remove_data_disk(self, vm_name: str, device: str, disks: dict, vms: dict):
+        config_file = self.__create_remove_disk_file(vm_name, disks[device]['location'], device)
+        if config_file and self.__detach_device(vm_name, config_file, vms):
+            if self.__remove_config_file(config_file):
+                self.log.info(f'Successfully removed disk {device} from {vm_name}')
+                return True
+        self.log.error(f'Failed to remove disk {device} from {vm_name}')
+        return False
+
+    def __delete_vm_disk(self, disk_name: str):
+        try:
+            remove(disk_name)
+            self.log.info(f'Deleted disk {disk_name}')
+            return True
+        except Exception:
+            self.log.exception(f'Failed to delete disk {disk_name}')
+            return False
+
+    def remove_data_disk(self, vm_name: str, device: str, force: bool = False):
+        if device == 'sda':
+            self.log.error('Cannot remove system boot disk')
+            return False
+        disks = self.get_vm_disks(vm_name)
+        if device in disks:
+            vms = self.get_instances()
+            if vm_name in vms.get('running', []):
+                if not self.__unmount_system_disk(vm_name, device):
+                    return False
+            if not self.__remove_data_disk(vm_name, device, disks, vms):
+                return False
+            if force or input(f'Delete disk {disks[device]["location"]} from {vm_name}? [y/n]: ').lower() == 'y':
+                return self.__delete_vm_disk(disks[device]['location'])
+        self.log.error(f'Disk {device} not found on {vm_name}')
+        return False

@@ -1,0 +1,21 @@
+---
+- name: Format disk with filesystem
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    device: ""
+    filesystem: ""
+
+  tasks:
+    - name: Ensure device exists and is not formatted
+      ansible.builtin.command: lsblk -no FSTYPE {{ device }}
+      register: fs_check
+      changed_when: false
+      failed_when: false
+
+    - name: Format disk
+      community.general.filesystem:
+        fstype: "{{ filesystem }}"
+        dev: "{{ device }}"
+      when: fs_check.stdout == ""

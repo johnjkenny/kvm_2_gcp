@@ -1,9 +1,12 @@
 import json
 import pickle
+import socket
 from logging import Logger
 from subprocess import run
 from pathlib import Path
+from time import sleep
 
+import ansible_runner
 from google.oauth2 import service_account
 
 from kvm_2_gcp.logger import get_logger
@@ -224,3 +227,74 @@ class Utils():
         except Exception:
             self.log.exception('Failed to create credentials file')
         return {}
+
+    def __create_ansible_client_directory(self, client_dir: Path, name: str, ip: str) -> bool:
+        """Create the Ansible client directory and inventory file
+
+        Args:
+            client_dir (Path): Path to the client directory
+            ip (str): client IP address
+
+        Returns:
+            bool: True on success, False otherwise
+        """
+        try:
+            Path.mkdir(client_dir, parents=True, exist_ok=True)
+            data = f"[all]\n{name} ansible_host={ip}\n"
+            with open(f'{client_dir}/inventory.ini', 'w') as f:
+                f.write(data)
+            return True
+        except Exception:
+            self.log.exception('Failed to create client directory')
+            return False
+
+    def is_port_open(self, ip: str, port: int = 22, timeout: int = 5, max_attempts: int = 12) -> bool:
+        """Check if a port is open on a given IP address. Will check for 1 minute before giving up with the default
+        timeout and max attempts set.
+
+        Args:
+            ip (str): ip address to check
+            port (int, optional): port to check. Defaults to 22.
+            timeout (int, optional): timeout between checks. Defaults to 5.
+            max_attempts (int, optional): max attempts before giving up. Defaults to 12
+
+        Returns:
+            bool: True if the port is open, False otherwise
+        """
+        self.display_info_msg(f'Waiting for {ip}:{port} to be open')
+        while max_attempts > 0:
+            try:
+                with socket.create_connection((ip, port), timeout=timeout):
+                    self.display_success_msg(f'{ip}:{port} is open, running Ansible playbook')
+                    return True
+            except (socket.timeout, ConnectionRefusedError, OSError):
+                self.display_warning_msg(f'{ip}:{port} is not open. Retrying in {timeout} seconds')
+                sleep(timeout)
+                max_attempts -= 1
+                continue
+        self.display_fail_msg('Failed to determine if port is open')
+        return False
+
+    def run_ansible_playbook(self, ip: str, name: str, playbook: str, extravars: dict = None) -> bool:
+        """Run the Ansible playbook to configure the VM. This will configure the VM with Docker and deploy app1
+
+        Args:
+            ip (str): IP address of the VM
+            name (str): name of the VM
+
+        Returns:
+            bool: True on success, False otherwise
+        """
+        client_dir = Path(f'{self.ansible_dir}/clients/{name}')
+        self.__create_ansible_client_directory(client_dir, name, ip)
+        result = ansible_runner.run(
+            private_data_dir=client_dir.absolute(),
+            playbook=f'{self.ansible_dir}/playbooks/{playbook}',
+            inventory=f'{client_dir}/inventory.ini',
+            artifact_dir=f'{client_dir}/artifacts',
+            envvars=self.ansible_env_vars,
+            extravars=extravars)
+        if result.rc == 0:
+            return True
+        self.log.error(f'Failed to run Ansible playbook: {result.status}')
+        return False
