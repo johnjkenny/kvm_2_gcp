@@ -1,7 +1,0 @@
----
-- name: Wait for startup marker
-  import_playbook: ./wait_for_startup_marker.yml
-- name: Install and configure Docker
-  import_playbook: ./install_and_configure_docker.yml
-- name: Deploy App1
-  import_playbook: ./deploy_app1.yml

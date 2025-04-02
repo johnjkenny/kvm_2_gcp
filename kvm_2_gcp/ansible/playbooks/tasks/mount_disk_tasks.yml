@@ -1,0 +1,25 @@
+- name: Ensure mount point directory exists
+  ansible.builtin.file:
+    path: "{{ mount }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Get UUID of the device
+  ansible.builtin.command: blkid -s UUID -o value {{ device }}
+  register: uuid_lookup
+  changed_when: false
+
+- name: Fail if UUID was not found
+  ansible.builtin.fail:
+    msg: "UUID for {{ device }} not found. Ensure it's partitioned and formatted."
+  when: uuid_lookup.stdout == ""
+
+- name: Mount the disk and add to fstab
+  ansible.posix.mount:
+    src: "UUID={{ uuid_lookup.stdout }}"
+    path: "{{ mount }}"
+    fstype: auto
+    opts: "defaults,nofail,x-systemd.device-timeout=0"
+    state: mounted

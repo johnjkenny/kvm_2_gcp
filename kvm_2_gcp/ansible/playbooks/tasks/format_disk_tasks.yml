@@ -1,0 +1,35 @@
+- name: Check if partition already exists
+  ansible.builtin.stat:
+    path: "{{ device }}1"
+  register: partition_stat
+
+- name: Fail if device partition exists
+  ansible.builtin.fail:
+    msg: "Device {{ device }}1 already exists."
+  when: partition_stat.stat.exists
+
+- name: Create partition on the disk
+  community.general.parted:
+    device: "{{ device }}"
+    number: 1
+    label: gpt
+    state: present
+    part_type: primary
+    name: primary
+    flags: []
+  register: parted_result
+
+- name: Set device var to new partition device
+  ansible.builtin.set_fact:
+    device: "{{ device }}1"
+
+- name: Wait for partition to be recognized
+  ansible.builtin.wait_for:
+    path: "{{ device }}"
+    state: present
+    timeout: 300
+
+- name: Format the partition with {{ filesystem }}
+  community.general.filesystem:
+    fstype: "{{ filesystem }}"
+    dev: "{{ device }}"

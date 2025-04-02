@@ -36,7 +36,6 @@ generate a private key for SSH access to the VM instance. The private key will b
 stash the service account key in the `k2g_env/keys` directory as well. A directory structure will be created in `/k2g`
 which will consists of the following directories:
 - images: local images to use for KVM. Can manually import, download via remote image, or build custom images (clones)
-- snapshots: snapshots of vm instances
 - vms: vm instances that have been created
 
 
@@ -301,6 +300,8 @@ options:
 
   -D, --delete          Delete virtual machine
 
+  -F, --force           Force action
+
   -l, --list            List virtual machines
 
   -R, --reboot          Reboot virtual machine
@@ -381,7 +382,9 @@ VM vm-2de60914 is up. IP: 192.168.122.75
 
 6. Delete a VM:
 ```bash
-k2g -c -v vm-2de60914 -D 
+# Use --force (-F) to skip confirmation prompt:
+k2g -c -v vm-2de60914 -D
+Delete VM vm-2de60914 and all its data? [y/n]: y
 [2025-04-01 15:02:47,090][INFO][kvm_controller,208]: Deleting VM vm-2de60914
 [2025-04-01 15:02:47,116][INFO][kvm_controller,229]: Shutting down VM vm-2de60914
 Waiting for VM vm-2de60914 to shutdown. 1/60 seconds
@@ -525,6 +528,13 @@ k2g -c -v vm-d9a7792d -n -r 52:54:00:c3:bd:6f
 ```
 
 ### VM Disk Handling
+This section will guide you through the process of adding, removing, and listing disks on a VM. It also allows you
+to increase disk sizes when needed.
+
+Please note, after the system reboots the disk device targets may change on OS side. `sdb` might become `/dev/sdc` etc.
+This is OK, because as long as you use the device name from the output of `--disks --list` then the tool will find
+the correct mapping on OS under `/dev/disk/by-id/` so any disk changes will be mapped correctly, but when checking
+the OS the information might seem misleading.
 
 
 ```bash
@@ -562,11 +572,15 @@ options:
   -F, --force           Force action
 
   -s SIZE, --size SIZE  Disk size. Default: 1GB
+
+  -i INCREASEDISK, --increaseDisk INCREASEDISK
+                        Increase disk size. Specify the disk name (e.g. sda). Use --size to specify
+                        increase size
 ```
 
 1. List disks:
 ```bash
-k2g -c -v vm-d9a7792d -d -l    
+k2g -c -v vm-d9a7792d -d -l
 {
   "sda": {
     "location": "/k2g/vms/vm-d9a7792d/boot.qcow2",
@@ -581,101 +595,132 @@ k2g -c -v vm-d9a7792d -d -l
 The add disk command will create the disk image, assign the disk to the VM, then if the VM is powered on it will
 run an ansible playbook that will format the disk to the specified filesystem type and then mount the disk to the
 specified mount point. An `fstab` entry will also be created using the device's UUID. The default filesystem type
-is `ext4` and the default mount point is `/mnt/<disk_name>`. The filesystem create uses the mkfs.<filesystem> command
-so realistically your two options are `ext4` or `xfs`, but if you install other packages that create the required mkfs
-command mappers then your options grow. The tool does not create disk partitions, but rather uses the entire disk
-image as a single partition.
+is `ext4` and the default mount point is `/mnt/<disk_name>`. The filesystem format process uses the mkfs.<filesystem>
+command so realistically your two options are `ext4` or `xfs`, but if you install other packages that create the
+required mkfs command mappers then your options grow. The tool creates a primary partition on the disk (sdb1) then
+creates the filesystem on the partition.
 
 ```bash
 # add disk using default options on a powered on VM:
-k2g -c -v vm-d9a7792d -d -a 
-[2025-04-01 22:56:49,447][INFO][kvm_controller,152]: Successfully created data disk /k2g/vms/vm-d9a7792d/data-ec41d3c9.qcow2 for vm-d9a7792d
-[2025-04-01 22:56:49,663][INFO][kvm_controller,179]: Successfully attached data disk /k2g/vms/vm-d9a7792d/data-ec41d3c9.qcow2 to vm-d9a7792d
+k2g -c -v vm-c3183891 -d -a
+[2025-04-02 19:12:45,960][INFO][kvm_controller,159]: Successfully created data disk /k2g/vms/vm-c3183891/data-97e0a9ca.qcow2 for vm-c3183891
+[2025-04-02 19:12:46,187][INFO][kvm_controller,186]: Successfully attached data disk /k2g/vms/vm-c3183891/data-97e0a9ca.qcow2 to vm-c3183891
 
-PLAY [Format disk with filesystem] *********************************************
+PLAY [Format and mount data disk] **********************************************
 
-TASK [Ensure device exists and is not formatted] *******************************
-ok: [vm-d9a7792d]
+TASK [Find device symlink in /dev/disk/by-id/] *********************************
+ok: [vm-c3183891]
 
-TASK [Format disk] *************************************************************
-changed: [vm-d9a7792d]
+TASK [Resolve symlink to full /dev path] ***************************************
+ok: [vm-c3183891]
 
-PLAY [Mount disk] **************************************************************
+TASK [Set resolved device path] ************************************************
+ok: [vm-c3183891]
+
+TASK [Check if partition already exists] ***************************************
+ok: [vm-c3183891]
+
+TASK [Create partition on the disk] ********************************************
+changed: [vm-c3183891]
+
+TASK [Set device var to new partition device] **********************************
+ok: [vm-c3183891]
+
+TASK [Wait for partition to be recognized] *************************************
+ok: [vm-c3183891]
+
+TASK [Format the partition with ext4] ******************************************
+changed: [vm-c3183891]
 
 TASK [Ensure mount point directory exists] *************************************
-changed: [vm-d9a7792d]
+changed: [vm-c3183891]
 
 TASK [Get UUID of the device] **************************************************
-ok: [vm-d9a7792d]
+ok: [vm-c3183891]
 
-TASK [Mount the disk using UUID and add to fstab] ******************************
-changed: [vm-d9a7792d]
+TASK [Mount the disk and add to fstab] *****************************************
+changed: [vm-c3183891]
 
 PLAY RECAP *********************************************************************
-vm-d9a7792d                : ok=5    changed=3    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0   
-[2025-04-01 22:56:51,385][INFO][kvm_controller,529]: Successfully formatted and mounted /k2g/vms/vm-d9a7792d/data-ec41d3c9.qcow2 on vm-d9a7792d
+vm-c3183891                : ok=11   changed=4    unreachable=0    failed=0    skipped=3    rescued=0    ignored=0
 
 # Check system:
 df -Th | grep mnt
-/dev/sdb       ext4      974M   24K  907M   1% /mnt/data-ec41d3c9
+/dev/sdb1      ext4      988M   24K  921M   1% /mnt/data-9a33edf5
 
 grep mnt /etc/fstab 
-UUID=657de19e-64e1-4ed4-b2cc-a3b7280a44b2 /mnt/data-ec41d3c9 auto defaults 0 0
+UUID=a89c81ed-32f7-4d52-9141-edabba926188 /mnt/data-9a33edf5 auto defaults,nofail,x-systemd.device-timeout=0 0 0
 
 
 # Create a disk using custom options:
-k2g -c -v vm-d9a7792d -d -a -f xfs -s 2586MB -m /mnt/myXFS -n data-xfs1
-[2025-04-01 23:00:30,032][INFO][kvm_controller,152]: Successfully created data disk /k2g/vms/vm-d9a7792d/data-xfs1.qcow2 for vm-d9a7792d
-[2025-04-01 23:00:30,284][INFO][kvm_controller,179]: Successfully attached data disk /k2g/vms/vm-d9a7792d/data-xfs1.qcow2 to vm-d9a7792d
+k2g -c -v vm-c3183891 -d -a -f xfs -s 2586MB -m /mnt/myXFS -n data-xfs1
+[2025-04-02 19:13:06,658][INFO][kvm_controller,159]: Successfully created data disk /k2g/vms/vm-c3183891/data-xfs1.qcow2 for vm-c3183891
+[2025-04-02 19:13:06,918][INFO][kvm_controller,186]: Successfully attached data disk /k2g/vms/vm-c3183891/data-xfs1.qcow2 to vm-c3183891
 
-PLAY [Format disk with filesystem] *********************************************
+PLAY [Format and mount data disk] **********************************************
 
-TASK [Ensure device exists and is not formatted] *******************************
-ok: [vm-d9a7792d]
+TASK [Find device symlink in /dev/disk/by-id/] *********************************
+ok: [vm-c3183891]
 
-TASK [Format disk] *************************************************************
-changed: [vm-d9a7792d]
+TASK [Resolve symlink to full /dev path] ***************************************
+ok: [vm-c3183891]
 
-PLAY [Mount disk] **************************************************************
+TASK [Set resolved device path] ************************************************
+ok: [vm-c3183891]
+
+TASK [Check if partition already exists] ***************************************
+ok: [vm-c3183891]
+
+TASK [Create partition on the disk] ********************************************
+changed: [vm-c3183891]
+
+TASK [Set device var to new partition device] **********************************
+ok: [vm-c3183891]
+
+TASK [Wait for partition to be recognized] *************************************
+ok: [vm-c3183891]
+
+TASK [Format the partition with xfs] *******************************************
+changed: [vm-c3183891]
 
 TASK [Ensure mount point directory exists] *************************************
-changed: [vm-d9a7792d]
+changed: [vm-c3183891]
 
 TASK [Get UUID of the device] **************************************************
-ok: [vm-d9a7792d]
+ok: [vm-c3183891]
 
-TASK [Mount the disk using UUID and add to fstab] ******************************
-changed: [vm-d9a7792d]
+TASK [Mount the disk and add to fstab] *****************************************
+changed: [vm-c3183891]
 
 PLAY RECAP *********************************************************************
-vm-d9a7792d                : ok=5    changed=3    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0   
-[2025-04-01 23:00:32,002][INFO][kvm_controller,529]: Successfully formatted and mounted /k2g/vms/vm-d9a7792d/data-xfs1.qcow2 on vm-d9a7792d
+vm-c3183891                : ok=11   changed=4    unreachable=0    failed=0    skipped=3    rescued=0    ignored=0   
+[2025-04-02 19:13:09,149][INFO][kvm_controller,536]: Successfully formatted and mounted /k2g/vms/vm-c3183891/data-xfs1.qcow2 on vm-c3183891
 
 # Check system:
 df -Th | grep XFS
-/dev/sdc       xfs       2.5G   50M  2.5G   2% /mnt/myXFS
+/dev/sdc1      xfs       2.5G   50M  2.5G   2% /mnt/myXFS
 
 grep XFS /etc/fstab 
-UUID=d7daf9cd-de27-487f-86b6-7198fedfe874 /mnt/myXFS auto defaults 0 0
+UUID=28204e75-d050-41a4-bc8c-177095ee77bc /mnt/myXFS auto defaults,nofail,x-systemd.device-timeout=0 0 0
 
 # List disks:
-k2g -c -v vm-d9a7792d -d -l                                            
+k2g -c -v vm-c3183891 -d -l                                            
 {
   "sda": {
-    "location": "/k2g/vms/vm-d9a7792d/boot.qcow2",
-    "serial": "vm-d9a7792d-boot",
+    "location": "/k2g/vms/vm-c3183891/boot.qcow2",
+    "serial": "vm-c3183891-boot",
     "size_bytes": 10737418240,
     "size": "10 GiB"
   },
   "sdb": {
-    "location": "/k2g/vms/vm-d9a7792d/data-ec41d3c9.qcow2",
-    "serial": "vm-d9a7792d-data-ec41d3c9",
+    "location": "/k2g/vms/vm-c3183891/data-97e0a9ca.qcow2",
+    "serial": "vm-c3183891-data-97e0a9ca",
     "size_bytes": 1073741824,
     "size": "1 GiB"
   },
   "sdc": {
-    "location": "/k2g/vms/vm-d9a7792d/data-xfs1.qcow2",
-    "serial": "vm-d9a7792d-data-xfs1",
+    "location": "/k2g/vms/vm-c3183891/data-xfs1.qcow2",
+    "serial": "vm-c3183891-data-xfs1",
     "size_bytes": 2711617536,
     "size": "2.525 GiB"
   }
@@ -688,28 +733,28 @@ prompt you if you would like to delete the disk image. You can use the `--force`
 operation without prompting.
 
 ```bash
-k2g -c -v vm-d9a7792d -d -R sdc
+k2g -c -v vm-05b3351b -d -R sdc                                        
 
 PLAY [Unmount disk] ************************************************************
 
 TASK [Get list of mounted devices] *********************************************
-ok: [vm-d9a7792d]
+ok: [vm-05b3351b]
 
 TASK [Find mount point for device] *********************************************
-ok: [vm-d9a7792d] => (item=/dev/sdc on /mnt/myXFS type xfs (rw,relatime,seclabel,attr2,inode64,logbufs=8,logbsize=32k,noquota))
+ok: [vm-05b3351b] => (item=/dev/sdc1 on /mnt/myXFS type xfs (rw,relatime,seclabel,attr2,inode64,logbufs=8,logbsize=32k,noquota,x-systemd.device-timeout=0))
 
 TASK [Unmount the device] ******************************************************
-changed: [vm-d9a7792d]
+changed: [vm-05b3351b]
 
 TASK [Remove fstab entry] ******************************************************
-changed: [vm-d9a7792d]
+changed: [vm-05b3351b]
 
 PLAY RECAP *********************************************************************
-vm-d9a7792d                : ok=4    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0   
-[2025-04-01 23:06:27,075][INFO][kvm_controller,732]: Successfully unmounted sdc on vm-d9a7792d
-[2025-04-01 23:06:27,252][INFO][kvm_controller,782]: Successfully removed disk sdc from vm-d9a7792d
-Delete disk /k2g/vms/vm-d9a7792d/data-xfs1.qcow2 from vm-d9a7792d? [y/n]: y
-[2025-04-01 23:06:32,932][INFO][kvm_controller,790]: Deleted disk /k2g/vms/vm-d9a7792d/data-xfs1.qcow2
+vm-05b3351b                : ok=4    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0   
+[2025-04-02 15:25:59,735][INFO][kvm_controller,731]: Successfully unmounted sdc on vm-05b3351b
+[2025-04-02 15:25:59,911][INFO][kvm_controller,781]: Successfully removed disk sdc from vm-05b3351b
+Delete disk /k2g/vms/vm-05b3351b/data-xfs1.qcow2 from vm-05b3351b? [y/n]: y
+[2025-04-02 15:26:04,194][INFO][kvm_controller,789]: Deleted disk /k2g/vms/vm-05b3351b/data-xfs1.qcow2
 ```
 
 4. Umount/Remount a disk:
@@ -718,46 +763,200 @@ select a new mount point using the `-m` option.
 
 ```bash
 # unmount:
-k2g -c -v vm-d9a7792d -d -u sdb
+k2g -c -v vm-c3183891 -d -u sdb
 
 PLAY [Unmount disk] ************************************************************
 
+TASK [Find device symlink in /dev/disk/by-id/] *********************************
+ok: [vm-c3183891]
+
+TASK [Resolve symlink to full /dev path] ***************************************
+ok: [vm-c3183891]
+
+TASK [Set resolved device path] ************************************************
+ok: [vm-c3183891]
+
 TASK [Get list of mounted devices] *********************************************
-ok: [vm-d9a7792d]
+ok: [vm-c3183891]
 
 TASK [Find mount point for device] *********************************************
-ok: [vm-d9a7792d] => (item=/dev/sdb on /mnt/data-ec41d3c9 type ext4 (rw,relatime,seclabel))
+ok: [vm-c3183891] => (item=/dev/sdb1 on /mnt/data-97e0a9ca type ext4 (rw,relatime,seclabel,x-systemd.device-timeout=0))
 
 TASK [Unmount the device] ******************************************************
-changed: [vm-d9a7792d]
+changed: [vm-c3183891]
 
 TASK [Remove fstab entry] ******************************************************
-changed: [vm-d9a7792d]
+changed: [vm-c3183891]
 
 PLAY RECAP *********************************************************************
-vm-d9a7792d                : ok=4    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0   
-[2025-04-01 23:11:25,240][INFO][kvm_controller,732]: Successfully unmounted sdb on vm-d9a7792d
+vm-c3183891                : ok=7    changed=2    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0   
+[2025-04-02 19:16:28,822][INFO][kvm_controller,740]: Successfully unmounted sdb on vm-c3183891
+
 
 # remount:
-k2g -c -v vm-d9a7792d -d -r sdb -m /mnt/newMount
+k2g -c -v vm-c3183891 -d -r sdb -m /mnt/newMount
 
 PLAY [Mount disk] **************************************************************
 
+TASK [Find device symlink in /dev/disk/by-id/] *********************************
+ok: [vm-c3183891]
+
+TASK [Resolve symlink to full /dev path] ***************************************
+ok: [vm-c3183891]
+
+TASK [Set resolved device path] ************************************************
+ok: [vm-c3183891]
+
 TASK [Ensure mount point directory exists] *************************************
-changed: [vm-d9a7792d]
+changed: [vm-c3183891]
 
 TASK [Get UUID of the device] **************************************************
-ok: [vm-d9a7792d]
+ok: [vm-c3183891]
 
-TASK [Mount the disk using UUID and add to fstab] ******************************
-changed: [vm-d9a7792d]
+TASK [Mount the disk and add to fstab] *****************************************
+changed: [vm-c3183891]
 
 PLAY RECAP *********************************************************************
-vm-d9a7792d                : ok=3    changed=2    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0   
-[2025-04-01 23:11:54,182][INFO][kvm_controller,756]: Successfully mounted sdb on vm-d9a7792d
+vm-c3183891                : ok=6    changed=2    unreachable=0    failed=0    skipped=2    rescued=0    ignored=0   
+[2025-04-02 19:16:49,808][INFO][kvm_controller,764]: Successfully mounted data-97e0a9ca-part1 on vm-c3183891
 
 # Check system:
 df -Th | grep new
-/dev/sdb       ext4      974M   24K  907M   1% /mnt/newMount
+/dev/sdb1      ext4      988M   24K  921M   1% /mnt/newMount
 ```
 
+5. Increase disk size:
+The increase disk size command requires the VM to be powered off. If you run the command while the VM is powered on
+you will be prompted to power off the VM unless you use the `--force` option. The command will increase the disk size
+of the specified disk by the specified size. After the resize the VM will be powered on and the disk will be resized
+using `growpart`. Then it will be determined what filesystem is running and resize the filesystem using the appropriate
+command, `resize2fs` for `ext4` and `xfs_growfs` for `xfs`.
+
+
+```bash
+# ext4 filesystem with prompt to power off:
+k2g -c -v vm-c3183891 -d -i sdb -s 50M          
+VM vm-c3183891 is running. Shutdown? [y/n]: y
+[2025-04-02 19:20:06,197][INFO][kvm_controller,260]: Shutting down VM vm-c3183891
+Waiting for VM vm-c3183891 to shutdown. 1/60 seconds
+[2025-04-02 19:20:07,373][INFO][kvm_controller,832]: Successfully increased disk /k2g/vms/vm-c3183891/data-97e0a9ca.qcow2
+[2025-04-02 19:20:07,373][INFO][kvm_controller,299]: Starting VM vm-c3183891
+Waiting for VM vm-c3183891 to initialize. 10/120 seconds
+VM vm-c3183891 is up. IP: 192.168.122.132
+
+PLAY [Resize disk] *************************************************************
+
+TASK [Find device symlink in /dev/disk/by-id/] *********************************
+ok: [vm-c3183891]
+
+TASK [Resolve symlink to full /dev path] ***************************************
+ok: [vm-c3183891]
+
+TASK [Set resolved device path] ************************************************
+ok: [vm-c3183891]
+
+TASK [Extract disk and partition number] ***************************************
+ok: [vm-c3183891]
+
+TASK [Run growpart to resize partition] ****************************************
+ok: [vm-c3183891]
+
+TASK [Get filesystem type of partition] ****************************************
+ok: [vm-c3183891]
+
+TASK [Resize ext4 filesystem] **************************************************
+changed: [vm-c3183891]
+
+PLAY RECAP *********************************************************************
+vm-c3183891                : ok=7    changed=1    unreachable=0    failed=0    skipped=2    rescued=0    ignored=0   
+[2025-04-02 19:20:20,736][INFO][kvm_controller,856]: Successfully resized disk sdb on vm-c3183891
+
+k2g -c -v vm-c3183891 -d -l           
+{
+  "sda": {
+    "location": "/k2g/vms/vm-c3183891/boot.qcow2",
+    "serial": "vm-c3183891-boot",
+    "size_bytes": 10737418240,
+    "size": "10 GiB"
+  },
+  "sdb": {
+    "location": "/k2g/vms/vm-c3183891/data-97e0a9ca.qcow2",
+    "serial": "vm-c3183891-data-97e0a9ca",
+    "size_bytes": 1126170624,
+    "size": "1.049 GiB"
+  },
+  "sdc": {
+    "location": "/k2g/vms/vm-c3183891/data-xfs1.qcow2",
+    "serial": "vm-c3183891-data-xfs1",
+    "size_bytes": 2711617536,
+    "size": "2.525 GiB"
+  }
+}
+
+# Check system:
+df -Th | grep new
+/dev/sdc1      ext4      1.1G   24K  968M   1% /mnt/newMount
+
+
+# xfs filesystem with force option used:
+k2g -c -v vm-c3183891 -d -i sdc -s 1.5G -F
+[2025-04-02 19:23:13,795][INFO][kvm_controller,260]: Shutting down VM vm-c3183891
+Waiting for VM vm-c3183891 to shutdown. 3/60 seconds
+[2025-04-02 19:23:17,006][INFO][kvm_controller,832]: Successfully increased disk /k2g/vms/vm-c3183891/data-xfs1.qcow2
+[2025-04-02 19:23:17,006][INFO][kvm_controller,299]: Starting VM vm-c3183891
+Waiting for VM vm-c3183891 to initialize. 10/120 seconds
+VM vm-c3183891 is up. IP: 192.168.122.132
+
+PLAY [Resize disk] *************************************************************
+
+TASK [Find device symlink in /dev/disk/by-id/] *********************************
+ok: [vm-c3183891]
+
+TASK [Resolve symlink to full /dev path] ***************************************
+ok: [vm-c3183891]
+
+TASK [Set resolved device path] ************************************************
+ok: [vm-c3183891]
+
+TASK [Extract disk and partition number] ***************************************
+ok: [vm-c3183891]
+
+TASK [Run growpart to resize partition] ****************************************
+ok: [vm-c3183891]
+
+TASK [Get filesystem type of partition] ****************************************
+ok: [vm-c3183891]
+
+TASK [Resize xfs filesystem] ***************************************************
+changed: [vm-c3183891]
+
+PLAY RECAP *********************************************************************
+vm-c3183891                : ok=7    changed=1    unreachable=0    failed=0    skipped=2    rescued=0    ignored=0   
+[2025-04-02 19:23:30,364][INFO][kvm_controller,856]: Successfully resized disk sdc on vm-c3183891
+
+k2g -c -v vm-c3183891 -d -l
+{
+  "sda": {
+    "location": "/k2g/vms/vm-c3183891/boot.qcow2",
+    "serial": "vm-c3183891-boot",
+    "size_bytes": 10737418240,
+    "size": "10 GiB"
+  },
+  "sdb": {
+    "location": "/k2g/vms/vm-c3183891/data-97e0a9ca.qcow2",
+    "serial": "vm-c3183891-data-97e0a9ca",
+    "size_bytes": 1126170624,
+    "size": "1.049 GiB"
+  },
+  "sdc": {
+    "location": "/k2g/vms/vm-c3183891/data-xfs1.qcow2",
+    "serial": "vm-c3183891-data-xfs1",
+    "size_bytes": 4322230272,
+    "size": "4.025 GiB"
+  }
+}
+
+# Check system:
+df -Th | grep mnt
+/dev/sdb1      xfs       2.5G   51M  2.4G   3% /mnt/myXFS
+```

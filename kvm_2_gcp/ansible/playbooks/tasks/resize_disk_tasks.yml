@@ -1,0 +1,25 @@
+- name: Extract disk and partition number
+  ansible.builtin.set_fact:
+    base_device: "{{ device | regex_replace('^(/dev/.*?)([0-9]+)$', '\\1') }}"
+    part_number: "{{ device | regex_replace('^(/dev/.*?)([0-9]+)$', '\\2') }}"
+
+- name: Run growpart to resize partition
+  ansible.builtin.command: growpart {{ base_device }} {{ part_number }}
+  register: growpart_result
+  changed_when: false
+  failed_when: growpart_result.rc != 0 and 'NOCHANGE' not in growpart_result.stdout
+
+- name: Get filesystem type of partition
+  ansible.builtin.command: lsblk -no FSTYPE {{ device }}
+  register: fs_type
+  changed_when: false
+
+- name: Resize ext4 filesystem
+  ansible.builtin.command: resize2fs {{ device }}
+  when: fs_type.stdout == "ext4"
+  changed_when: true
+
+- name: Resize xfs filesystem
+  ansible.builtin.command: xfs_growfs {{ device }}
+  when: fs_type.stdout == "xfs"
+  changed_when: true

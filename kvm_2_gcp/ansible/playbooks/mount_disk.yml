@@ -4,32 +4,13 @@
   become: true
   gather_facts: false
   vars:
+    device_name: ""
     device: ""
     mount: ""
 
   tasks:
-    - name: Ensure mount point directory exists
-      ansible.builtin.file:
-        path: "{{ mount }}"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
+    - name: Resolve disk device
+      ansible.builtin.import_tasks: tasks/resolve_disk_device_tasks.yml
 
-    - name: Get UUID of the device
-      ansible.builtin.command: blkid -s UUID -o value {{ device }}
-      register: uuid_lookup
-      changed_when: false
-
-    - name: Fail if UUID was not found
-      ansible.builtin.fail:
-        msg: "UUID for {{ device }} not found. Ensure it's partitioned and formatted."
-      when: uuid_lookup.stdout == ""
-
-    - name: Mount the disk using UUID and add to fstab
-      ansible.posix.mount:
-        src: "UUID={{ uuid_lookup.stdout }}"
-        path: "{{ mount }}"
-        fstype: auto
-        opts: defaults
-        state: mounted
+    - name: Mount disk
+      ansible.builtin.import_tasks: tasks/mount_disk_tasks.yml
