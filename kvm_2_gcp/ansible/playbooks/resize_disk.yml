@@ -1,5 +1,5 @@
 ---
-- name: Unmount disk
+- name: Resize disk
   hosts: all
   become: true
   gather_facts: false
@@ -11,5 +11,5 @@
     - name: Resolve disk device
       ansible.builtin.import_tasks: tasks/resolve_disk_device_tasks.yml
 
-    - name: Unmount disk
-      ansible.builtin.import_tasks: tasks/unmount_disk_tasks.yml
+    - name: Resize disk
+      ansible.builtin.import_tasks: tasks/resize_disk_tasks.yml

@@ -1,0 +1,20 @@
+- name: Find device symlink in /dev/disk/by-id/
+  ansible.builtin.find:
+    paths: /dev/disk/by-id
+    file_type: any
+    patterns: "*{{ device_name }}"
+  register: disk_by_id_result
+
+- name: Fail if no matching device was found
+  ansible.builtin.fail:
+    msg: "No matching device found in /dev/disk/by-id/ ending in '{{ device_name }}'"
+  when: disk_by_id_result.files | length == 0
+
+- name: Resolve symlink to full /dev path
+  ansible.builtin.command: readlink -f {{ disk_by_id_result.files[0].path }}
+  register: resolved_dev
+  changed_when: false
+
+- name: Set resolved device path
+  ansible.builtin.set_fact:
+    device: "{{ resolved_dev.stdout }}"

@@ -249,7 +249,7 @@ def parse_controller_args(args: dict):
     if args.get('resetHard'):
         return KVMController().hard_reset_vm(args['vm'])
     if args.get('delete'):
-        return KVMController().delete_vm(args['vm'])
+        return KVMController().delete_vm(args['vm'], args['force'])
     if args.get('networks'):
         return network(args['vm'], args['networks'])
     if args.get('disks'):
@@ -266,6 +266,11 @@ def controller(parent_args: list = None):
         'delete': {
             'short': 'D',
             'help': 'Delete virtual machine',
+            'action': 'store_true'
+        },
+        'force': {
+            'short': 'F',
+            'help': 'Force action',
             'action': 'store_true'
         },
         'list': {
@@ -360,6 +365,8 @@ def parse_disk_args(vm_name: str, args: dict):
         return KVMController().unmount_system_disk(vm_name, args['unmount'])
     if args.get('remount'):
         return KVMController().mount_system_disk(vm_name, args['remount'], args['mountPoint'])
+    if args.get('increaseDisk'):
+        return KVMController().increase_disk_size(vm_name, args['increaseDisk'], args['size'], args['force'])
     return True
 
 
@@ -412,10 +419,10 @@ def disks(vm_name: str, parent_args: list = None):
             'help': 'Disk size. Default: 1GB',
             'default': '1GB',
         },
-        'resize': {
-            'short': 'rs',
-            'help': 'Resize disk. Specify disk device target e.g. sdb',
-        }
+        'increaseDisk': {
+            'short': 'i',
+            'help': 'Increase disk size. Specify the disk name (e.g. sda). Use --size to specify increase size',
+        },
     }).set_arguments()
     if not parse_disk_args(vm_name, args):
         exit(1)

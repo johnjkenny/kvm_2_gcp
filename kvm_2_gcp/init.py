@@ -105,7 +105,7 @@ class Init(Utils):
         return True
 
     def __set_directory_structure(self) -> bool:
-        for _dir in [self.image_dir, self.vm_dir, self.snapshot_dir, self.config_dir]:
+        for _dir in [self.image_dir, self.vm_dir]:
             if not self._run_cmd(f'mkdir -p {_dir}')[1]:
                 return False
         return True

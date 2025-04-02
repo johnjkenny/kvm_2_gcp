@@ -1,5 +1,20 @@
 ---
-- name: Format disk with filesystem
-  import_playbook: ./format_disk.yml
-- name: Mount disk
-  import_playbook: ./mount_disk.yml
+- name: Format and mount data disk
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    device_name: ""
+    device: ""
+    mount: ""
+    filesystem: ""
+
+  tasks:
+    - name: Resolve disk device
+      ansible.builtin.import_tasks: tasks/resolve_disk_device_tasks.yml
+
+    - name: Format disk
+      ansible.builtin.import_tasks: tasks/format_disk_tasks.yml
+
+    - name: Mount disk
+      ansible.builtin.import_tasks: tasks/mount_disk_tasks.yml

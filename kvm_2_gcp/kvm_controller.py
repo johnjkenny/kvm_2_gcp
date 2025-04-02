@@ -115,12 +115,19 @@ class KVMController(Utils):
     def __split_size_suffix(self, size: str):
         digit = []
         suffix = []
+        decimal_found = False
         for char in size:
-            if char.isdigit():
+            if char.isdigit() or (char == '.' and not decimal_found):
+                if char == '.':
+                    decimal_found = True
                 digit.append(char)
             elif char.isalpha():
                 suffix.append(char)
-        return int(''.join(digit)), ''.join(suffix).lower()
+        try:
+            return float(''.join(digit)), ''.join(suffix).lower()
+        except ValueError:
+            self.log.error(f'Unable to parse numeric part from size: {size}')
+            return 0.0, ''
 
     def __convert_size_to_bytes(self, size: int | str):
         if isinstance(size, int):
@@ -130,13 +137,13 @@ class KVMController(Utils):
                 return int(size)
             digit, suffix = self.__split_size_suffix(size)
             if suffix in ['t', 'tb', 'tib']:
-                return digit * 1024 ** 4
+                return int(digit * 1024 ** 4)
             if suffix in ['g', 'gb', 'gib']:
-                return digit * 1024 ** 3
+                return int(digit * 1024 ** 3)
             if suffix in ['m', 'mb', 'mib']:
-                return digit * 1024 ** 2
+                return int(digit * 1024 ** 2)
             if suffix in ['k', 'kb', 'kib']:
-                return digit * 1024
+                return int(digit * 1024)
             self.log.error(f'Invalid size suffix: {suffix}')
         else:
             self.log.error(f'Invalid size type: {size}, {type(size)}')
@@ -216,25 +223,28 @@ class KVMController(Utils):
         """List all VMs on the hypervisor. It will list all VMs in a table format with the VM name and state"""
         return self.display_info_msg(f'VMs:\n{json.dumps(self.get_instances(True), indent=2)}')
 
-    def delete_vm(self, vm_name: str) -> bool:
+    def delete_vm(self, vm_name: str, force: bool = False) -> bool:
         """Delete a VM by shutting it down, undefine it, and deleting its directory. This will remove all traces of
         the VM from the hypervisor and the VM directory.
 
         Args:
             vm_name (str): The name of the VM to delete
+            force (bool, optional): Force the delete without user input. Defaults to False.
 
         Returns:
             bool: True if successful, False otherwise
         """
-        self.log.info(f'Deleting VM {vm_name}')
-        instance = self.get_instances()
-        if self.__instance_exists(vm_name, instance):
-            if vm_name in instance.get('running', []):
-                if not self.shutdown_vm(vm_name):
+        if force or input(f'Delete VM {vm_name} and all its data? [y/n]: ').lower() == 'y':
+            self.log.info(f'Deleting VM {vm_name}')
+            instance = self.get_instances()
+            if self.__instance_exists(vm_name, instance):
+                if vm_name in instance.get('running', []):
+                    if not self.shutdown_vm(vm_name):
+                        return False
+                if not self.__undefine_vm(vm_name):
                     return False
-            if not self.__undefine_vm(vm_name):
-                return False
-        return self.__delete_vm_directory(vm_name)
+            return self.__delete_vm_directory(vm_name)
+        return False
 
     def shutdown_vm(self, vm_name: str) -> bool:
         """Shutdown a VM using the virsh shutdown command. This will attempt to gracefully shutdown the VM. If the
@@ -500,18 +510,14 @@ class KVMController(Utils):
     def eject_instance_iso(self, vm_name: str, remove_cdrom: bool = True) -> bool:
         disks: dict = self.get_vm_disks(vm_name)
         for target, source in disks.items():
-            if source.endswith('.iso'):
+            if source.get('location', '').endswith('.iso'):
                 if self._run_cmd(f'virsh change-media {vm_name} {target} --eject --config')[1]:
-                    self.log.info(f'Ejected {source} from {vm_name}')
+                    self.log.info(f'Ejected {source.get("location")} from {vm_name}')
                     if remove_cdrom:
                         return self.__remove_instance_cdrom(vm_name, target)
                     return True
         self.log.error(f'Failed to remove attached iso from {vm_name}')
         return False
-
-    def detach_data_disk(self, vm_name: str, disk_name: str):
-        # ToDo: Create method to detach live disk from vm
-        pass
 
     def create_data_disk(self, vm_name: str, size: int | str, name: str = 'GENERATE', filesystem: str = 'ext4',
                          mount: str = 'default') -> bool:
@@ -521,10 +527,11 @@ class KVMController(Utils):
             target = self.__attach_data_disk(vm_name, disk_name, vms)
             if target:
                 if vm_name in vms.get('running', []):
-                    mount = mount if mount != 'default' else f'/mnt/{disk_name.split("/")[-1].split(".")[0]}'
+                    device_name = disk_name.split('/')[-1].split('.')[0]
+                    mount = mount if mount != 'default' else f'/mnt/{device_name}'
                     ip = self.get_vm_ip_by_interface_name(vm_name)
                     if ip:
-                        data = {'device': f'/dev/{target}', 'filesystem': filesystem, 'mount': mount}
+                        data = {'device_name': device_name, 'filesystem': filesystem, 'mount': mount}
                         if self.run_ansible_playbook(ip, vm_name, 'format_and_mount_data_disk.yml', data):
                             self.log.info(f'Successfully formatted and mounted {disk_name} on {vm_name}')
                             return True
@@ -725,10 +732,11 @@ class KVMController(Utils):
         """
         return self.display_info_msg(json.dumps(self.get_vm_disks(vm_name), indent=2))
 
-    def __unmount_system_disk(self, vm_name: str, device: str):
+    def __unmount_system_disk(self, vm_name: str, device: str, disks: dict):
         ip = self.get_vm_ip_by_interface_name(vm_name)
         if ip:
-            if self.run_ansible_playbook(ip, vm_name, 'unmount_disk.yml', {'device': f'/dev/{device}'}):
+            device_name = f'{vm_name}-{disks[device]["location"].split("/")[-1].split(".")[0]}-part1'
+            if self.run_ansible_playbook(ip, vm_name, 'unmount_disk.yml', {'device_name': device_name}):
                 self.log.info(f'Successfully unmounted {device} on {vm_name}')
                 return True
             self.log.error(f'Failed to unmount {device} on {vm_name}')
@@ -743,21 +751,21 @@ class KVMController(Utils):
         disks = self.get_vm_disks(vm_name)
         if device in disks:
             if vm_name in self.get_instances().get('running', []):
-                return self.__unmount_system_disk(vm_name, device)
+                return self.__unmount_system_disk(vm_name, device, disks)
             self.log.error(f'VM {vm_name} is not running')
         else:
             self.log.error(f'Disk {device} not found on {vm_name}')
         return False
 
-    def __mount_system_disk(self, vm_name: str, device: str, mount: str):
+    def __mount_system_disk(self, vm_name: str, device_name: str, mount: str):
         ip = self.get_vm_ip_by_interface_name(vm_name)
         if ip:
-            if self.run_ansible_playbook(ip, vm_name, 'mount_disk.yml', {'device': f'/dev/{device}', 'mount': mount}):
-                self.log.info(f'Successfully mounted {device} on {vm_name}')
+            if self.run_ansible_playbook(ip, vm_name, 'mount_disk.yml', {'device_name': device_name, 'mount': mount}):
+                self.log.info(f'Successfully mounted {device_name} on {vm_name}')
                 return True
-            self.log.error(f'Failed to mount {device} on {vm_name}')
+            self.log.error(f'Failed to mount {device_name} on {vm_name}')
         else:
-            self.log.error(f'Failed to get IP address to mount {device} on {vm_name}')
+            self.log.error(f'Failed to get IP address to mount {device_name} on {vm_name}')
         return False
 
     def mount_system_disk(self, vm_name: str, device: str, mount: str):
@@ -766,10 +774,10 @@ class KVMController(Utils):
             return False
         disks = self.get_vm_disks(vm_name)
         if device in disks:
-            device_loc = disks[device].get('location')
-            mount = mount if mount != 'default' else f'/mnt/{device_loc.split("/")[-1].split(".")[0]}'
+            device_name = disks[device].get('location', '').split("/")[-1].split(".")[0]
+            mount = mount if mount != 'default' else f'/mnt/{device_name}'
             if vm_name in self.get_instances().get('running', []):
-                return self.__mount_system_disk(vm_name, device, mount)
+                return self.__mount_system_disk(vm_name, device_name + '-part1', mount)
             self.log.error(f'VM {vm_name} is not running')
         else:
             self.log.error(f'Disk {device} not found on {vm_name}')
@@ -801,11 +809,53 @@ class KVMController(Utils):
         if device in disks:
             vms = self.get_instances()
             if vm_name in vms.get('running', []):
-                if not self.__unmount_system_disk(vm_name, device):
+                if not self.__unmount_system_disk(vm_name, device, disks):
                     return False
             if not self.__remove_data_disk(vm_name, device, disks, vms):
                 return False
             if force or input(f'Delete disk {disks[device]["location"]} from {vm_name}? [y/n]: ').lower() == 'y':
                 return self.__delete_vm_disk(disks[device]['location'])
         self.log.error(f'Disk {device} not found on {vm_name}')
+        return False
+
+    def __increase_disk_size(self, vm_name: str, device: str, size: int | str, force: bool = False):
+        vms = self.get_instances()
+        if vm_name not in vms.get('stopped', []):
+            if force or input(f'VM {vm_name} is running. Shutdown? [y/n]: ').lower() == 'y':
+                if not self.shutdown_vm(vm_name):
+                    return False
+            else:
+                self.log.error(f'VM {vm_name} is running. Cannot increase disk size')
+                return False
+        size = self.__convert_size_to_bytes(size)
+        if size and self._run_cmd(f'qemu-img resize {device} +{size}')[1]:
+            self.log.info(f'Successfully increased disk {device}')
+            return True
+        self.log.error(f'Failed to increase disk {device}')
+        return False
+
+    def increase_disk_size(self, vm_name: str, device: str, size: int | str, force: bool = False) -> bool:
+        """Increase the size of a VM disk using the qemu-img resize command.
+
+        Args:
+            vm_name (str): name of the vm to increase the disk size
+            device (str): name of the disk to increase the size
+            size (int | str): new size of the disk in bytes or human readable format (ex: 10G)
+            force (bool, optional): power off the VM without prompt if powered on. Defaults to False.
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        disks = self.get_vm_disks(vm_name)
+        if device in disks:
+            if self.__increase_disk_size(vm_name, disks[device]["location"], size, force):
+                ip = self.start_vm(vm_name)
+                if ip:
+                    device_name = f'{vm_name}-{disks[device]["location"].split("/")[-1].split(".")[0]}-part1'
+                    if self.run_ansible_playbook(ip, vm_name, 'resize_disk.yml', {'device_name': device_name}):
+                        self.log.info(f'Successfully resized disk {device} on {vm_name}')
+                        return True
+                    self.log.error(f'Failed to resize disk {device} on {vm_name}')
+        else:
+            self.log.error(f'Disk {device} not found on {vm_name}')
         return False
