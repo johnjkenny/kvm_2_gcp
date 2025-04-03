@@ -11,19 +11,20 @@ from kvm_2_gcp.kvm_controller import KVMController
 
 
 class KVMDeploy(Utils):
-    def __init__(self, name: str, image: str, cpu: int = 2, memory: int = 2048,
-                 playbook: str = 'wait_for_startup_marker.yml', add_user: bool = True, logger: Logger = None):
+    def __init__(self, name: str, image: str, disk_size: int = 10, cpu: int = 2, memory: int = 2048, playbook: str = '',
+                 add_user: bool = True, logger: Logger = None):
         super().__init__(logger)
         if name == 'GENERATE':
             name = f'vm-{uuid4().hex[:8]}'
         self.__image = image
         self._name = name
+        self.__disk_size = disk_size
         self.__cpu = cpu
         self.__memory = memory
         self.__deploy_dir = Path(f'{self.vm_dir}/{self._name}')
         self.__users = ['ansible']
         self.__startup = 'default-startup'
-        self._playbook = playbook
+        self._playbook = playbook or 'wait_for_startup_marker.yml'
         if add_user:
             user = getpass.getuser()
             if user == 'root':
@@ -45,7 +46,6 @@ class KVMDeploy(Utils):
 
     @property
     def __create_cmd(self):
-        # Set os-variant to linux2022 for now, but create a parsing tool to get the os-variant from the image
         return f'''virt-install \
 --name={self._name} \
 --os-variant=linux2022 \
@@ -53,7 +53,7 @@ class KVMDeploy(Utils):
 --vcpus={self.__cpu} \
 --import \
 --disk path={self.__boot_disk},bus=scsi,serial={self._name}-boot,target=sda \
---disk path={self.__iso_file},device=cdrom,bus=scsi,serial={self._name}-cdrom \
+--disk path={self.__iso_file},device=cdrom,bus=scsi,serial={self._name}-cdrom,target=sdb \
 --network bridge=virbr0,model=virtio \
 --graphics vnc,listen=0.0.0.0 \
 --noautoconsole'''
@@ -94,6 +94,7 @@ class KVMDeploy(Utils):
             return False
         try:
             Path(f'{self.__deploy_dir}/iso').mkdir(parents=True)
+            Path(f'{self.__deploy_dir}/ansible').mkdir()
             return True
         except Exception:
             self.log.exception(f'Failed to create VM directory {self.__deploy_dir}')
@@ -158,9 +159,12 @@ class KVMDeploy(Utils):
         if image_file.exists():
             try:
                 copy2(image_file, self.__boot_disk)
-                return True
             except Exception:
                 self.log.exception(f'Failed to create VM {self._name} boot disk')
+                return False
+            if self.__disk_size > 10:
+                return self.controller.set_disk_size(self._name, self.__boot_disk, f'{self.__disk_size}GB', True)
+            return True
         else:
             self.log.error(f'Image {self.__image} not found')
         return False

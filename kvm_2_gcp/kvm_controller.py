@@ -818,20 +818,33 @@ class KVMController(Utils):
         self.log.error(f'Disk {device} not found on {vm_name}')
         return False
 
-    def __increase_disk_size(self, vm_name: str, device: str, size: int | str, force: bool = False):
+    def __validate_disk_change(self, vm_name: str, device: str, size: int | str, force: bool = False):
         vms = self.get_instances()
-        if vm_name not in vms.get('stopped', []):
+        if vm_name in vms.get('running', []):
             if force or input(f'VM {vm_name} is running. Shutdown? [y/n]: ').lower() == 'y':
                 if not self.shutdown_vm(vm_name):
                     return False
             else:
                 self.log.error(f'VM {vm_name} is running. Cannot increase disk size')
                 return False
-        size = self.__convert_size_to_bytes(size)
-        if size and self._run_cmd(f'qemu-img resize {device} +{size}')[1]:
-            self.log.info(f'Successfully increased disk {device}')
-            return True
-        self.log.error(f'Failed to increase disk {device}')
+        return True
+
+    def set_disk_size(self, vm_name: str, device: str, size: int | str, force: bool = False):
+        if self.__validate_disk_change(vm_name, device, size, force):
+            size_bytes = self.__convert_size_to_bytes(size)
+            if size_bytes and self._run_cmd(f'qemu-img resize {device} {size_bytes}')[1]:
+                self.log.info(f'Successfully set disk {device} to {size}')
+                return True
+            self.log.error(f'Failed to increase disk {device}')
+        return False
+
+    def __increase_disk_size(self, vm_name: str, device: str, size: int | str, force: bool = False):
+        if self.__validate_disk_change(vm_name, device, size, force):
+            size_bytes = self.__convert_size_to_bytes(size)
+            if size_bytes and self._run_cmd(f'qemu-img resize {device} +{size_bytes}')[1]:
+                self.log.info(f'Successfully increased disk {device} by {size}')
+                return True
+            self.log.error(f'Failed to increase disk {device}')
         return False
 
     def increase_disk_size(self, vm_name: str, device: str, size: int | str, force: bool = False) -> bool:
@@ -851,7 +864,8 @@ class KVMController(Utils):
             if self.__increase_disk_size(vm_name, disks[device]["location"], size, force):
                 ip = self.start_vm(vm_name)
                 if ip:
-                    device_name = f'{vm_name}-{disks[device]["location"].split("/")[-1].split(".")[0]}-part1'
+                    suffix = '-part1' if device != 'sda' else ''
+                    device_name = f'{vm_name}-{disks[device]["location"].split("/")[-1].split(".")[0]}{suffix}'
                     if self.run_ansible_playbook(ip, vm_name, 'resize_disk.yml', {'device_name': device_name}):
                         self.log.info(f'Successfully resized disk {device} on {vm_name}')
                         return True

@@ -207,7 +207,7 @@ def parse_deploy_args(args: dict):
         if args.get('build'):
             build_args = args.pop('build')
             return builder(args, build_args)
-        return KVMDeploy(args['name'], args['image'], args['cpu'], args['memory']).deploy()
+        return KVMDeploy(args['name'], args['image'], args['diskSize'], args['cpu'], args['memory']).deploy()
     if args.get('build'):
         build_args = args.pop('build')
         return builder(args, build_args)
@@ -227,6 +227,12 @@ def deploy(parent_args: list = None):
         'image': {
             'short': 'i',
             'help': 'Image to deploy'
+        },
+        'diskSize': {
+            'short': 's',
+            'help': 'Disk size in GB. Default: 10GB',
+            'type': int,
+            'default': 10
         },
         'cpu': {
             'short': 'c',
@@ -455,7 +461,7 @@ def parse_builder_args(dargs: dict, args: dict):
     if args.get('playbook'):
         if not dargs.get('image'):
             return KVMBuilder().display_fail_msg('Image not specified for deploy')
-        return KVMBuilder(dargs['name'], dargs['image'], dargs['cpu'], dargs['memory'],
+        return KVMBuilder(dargs['name'], dargs['image'], dargs['diskSize'], dargs['cpu'], dargs['memory'],
                           args['playbook']).run_build()
     return True
 
