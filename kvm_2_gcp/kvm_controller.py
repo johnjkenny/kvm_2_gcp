@@ -873,3 +873,79 @@ class KVMController(Utils):
         else:
             self.log.error(f'Disk {device} not found on {vm_name}')
         return False
+
+    def get_vm_resources(self, vm_name: str):
+        """Get the resources of a VM using the virsh dominfo command. This will return a dictionary of resources
+        with the name as the key and the value as the value.
+
+        Args:
+            vm_name (str): name of the vm to get the resources for
+
+        Returns:
+            dict: dictionary of resources with the name as the key and the value as the value
+        """
+        resources = {}
+        rsp = self._run_cmd(f'virsh domstats {vm_name}')
+        if rsp[1]:
+            for line in rsp[0].splitlines():
+                if 'vcpu.current=' in line:
+                    resources['cpu'] = int(line.split('=')[-1].strip())
+                if 'balloon.current=' in line:
+                    size = self.__convert_size_to_bytes(line.split('=')[-1].strip() + 'kb')
+                    resources['memory_bytes'] = size
+                    resources['memory'] = self.__bytes_to_human_readable(size)
+        return resources
+
+    def display_resources(self, vm_name: str):
+        return self.display_info_msg(json.dumps(self.get_vm_resources(vm_name), indent=2))
+
+    def __set_vm_memory(self, vm_name: str, memory: int):
+        if not memory:
+            return True
+        memory_kb = memory * 1024
+        if not self._run_cmd(f'virsh setmaxmem {vm_name} {memory_kb} --config')[1]:
+            self.log.error(f'Failed to set max memory for {vm_name} to {memory_kb} KiB')
+            return False
+        self.log.info(f'Successfully set max memory for {vm_name} to {memory_kb} KiB')
+        if not self._run_cmd(f'virsh setmem {vm_name} {memory_kb} --config')[1]:
+            self.log.error(f'Failed to set current memory for {vm_name} to {memory_kb} KiB')
+            return False
+        self.log.info(f'Successfully set current memory for {vm_name} to {memory_kb} KiB')
+        return True
+
+    def __set_vm_cpu(self, vm_name: str, cpu: int):
+        if not cpu:
+            return True
+        if not self._run_cmd(f'virsh setvcpus {vm_name} {cpu} --maximum --config')[1]:
+            self.log.error(f'Failed to set max CPU count for {vm_name}')
+            return False
+        self.log.info(f'Successfully set max CPU count for {vm_name} to {cpu}')
+        if not self._run_cmd(f'virsh setvcpus {vm_name} {cpu} --config')[1]:
+            self.log.error(f'Failed to set current CPU count for {vm_name}')
+            return False
+        self.log.info(f'Successfully set current CPU count for {vm_name} to {cpu}')
+        return True
+
+    def __shutdown_vm_if_running(self, vm_name: str, force: bool = False) -> bool:
+        running = False
+        if vm_name in self.get_instances().get('running', []):
+            running = True
+            if force or input(f'VM {vm_name} is running. Shutdown? [y/n]: ').lower() == 'y':
+                if not self.shutdown_vm(vm_name):
+                    return False, running
+            else:
+                self.log.error(f'VM {vm_name} is running. Cannot change resources')
+                return False, running
+        return True, running
+
+    def set_vm_resources(self, vm_name: str, cpu: int = 0, memory: int = 0, force: bool = False) -> bool:
+        state, running = self.__shutdown_vm_if_running(vm_name, force)
+        if state:
+            updated = False
+            if self.__set_vm_cpu(vm_name, cpu) and self.__set_vm_memory(vm_name, memory):
+                self.log.info(f'Successfully set resources for {vm_name}')
+                updated = True
+            if running and not self.start_vm(vm_name):
+                return False
+            return updated
+        return False

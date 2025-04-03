@@ -262,6 +262,8 @@ def parse_controller_args(args: dict):
         return KVMController().list_vms()
     if args.get('networks'):
         return network(args.get('vm', ''), args['networks'])
+    if args.get('resources'):
+        return resources(args['vm'], args['resources'])
     if args.get('disks'):
         return disks(args.get('vm', ''), args['disks'])
     if not args.get('vm'):
@@ -337,6 +339,11 @@ def controller(parent_args: list = None):
             'help': 'Virtual machine disk handling',
             'nargs': REMAINDER
         },
+        'resources': {
+            'short': 'r',
+            'help': 'Virtual machine resource handling',
+            'nargs': REMAINDER
+        }
     }).set_arguments()
     if not parse_controller_args(args):
         exit(1)
@@ -451,6 +458,44 @@ def disks(vm_name: str, parent_args: list = None):
         },
     }).set_arguments()
     if not parse_disk_args(vm_name, args):
+        exit(1)
+    exit(0)
+
+
+def parse_resource_args(vm_name: str, args: dict):
+    if not vm_name:
+        return KVMController().display_fail_msg('VM name not specified. Please specify a VM name.')
+    if args.get('list'):
+        return KVMController().display_resources(vm_name)
+    if args.get('cpu') or args.get('memory'):
+        return KVMController().set_vm_resources(vm_name, args.get('cpu', 0), args.get('memory', 0), args['force'])
+    return True
+
+
+def resources(vm_name: str, parent_args: list = None):
+    args = ArgParser('KVM-2-GCP KVM Resource Manager', parent_args, {
+        'list': {
+            'short': 'l',
+            'help': 'List virtual machine resources',
+            'action': 'store_true'
+        },
+        'cpu': {
+            'short': 'c',
+            'help': 'Set CPU count',
+            'type': int,
+        },
+        'memory': {
+            'short': 'm',
+            'help': 'Set memory size in MB',
+            'type': int,
+        },
+        'force': {
+            'short': 'F',
+            'help': 'Force action',
+            'action': 'store_true'
+        }
+    }).set_arguments()
+    if not parse_resource_args(vm_name, args):
         exit(1)
     exit(0)
 

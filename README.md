@@ -507,6 +507,9 @@ options:
                         Virtual machine network interface handling
 
   -d ..., --disks ...   Virtual machine disk handling
+
+  -r ..., --resources ...
+                        Virtual machine resource handling
 ```
 
 1. List VMs:
@@ -1148,4 +1151,63 @@ k2g -c -v vm-c3183891 -d -l
 # Check system:
 df -Th | grep mnt
 /dev/sdb1      xfs       2.5G   51M  2.4G   3% /mnt/myXFS
+```
+
+### VM Resource Handling
+The resource command allows you to list and change VM CPU and memory resources assigned.
+
+```bash
+# command options:
+k2g -c -r -h
+usage: k2g [-h] [-l] [-c CPU] [-m MEMORY] [-F FORCE]
+
+KVM-2-GCP KVM Resource Manager
+
+options:
+  -h, --help            show this help message and exit
+
+  -l, --list            List virtual machine resources
+
+  -c CPU, --cpu CPU     Set CPU count
+
+  -m MEMORY, --memory MEMORY
+                        Set memory size in MB
+
+  -F FORCE, --force FORCE
+                        Force action
+```
+
+1. List resources:
+```bash
+k2g -c -v vm-7e84bd43 -r -l
+{
+  "memory_bytes": 2147483648,
+  "memory": "2 GiB",
+  "cpu": 2
+}
+```
+
+2. Change resources:
+```bash
+# Use the --force option to skip confirmation prompt:
+k2g -c -v vm-7e84bd43 -r -c 4 -m 4096
+VM vm-7e84bd43 is running. Shutdown? [y/n]: y
+[2025-04-03 19:16:45,595][INFO][kvm_controller,260]: Shutting down VM vm-7e84bd43
+Waiting for VM vm-7e84bd43 to shutdown. 3/60 seconds
+[2025-04-03 19:16:48,827][INFO][kvm_controller,922]: Successfully set max CPU count for vm-7e84bd43 to 4
+[2025-04-03 19:16:48,855][INFO][kvm_controller,926]: Successfully set current CPU count for vm-7e84bd43 to 4
+[2025-04-03 19:16:48,883][INFO][kvm_controller,909]: Successfully set max memory for vm-7e84bd43 to 4194304 KiB
+[2025-04-03 19:16:48,912][INFO][kvm_controller,913]: Successfully set current memory for vm-7e84bd43 to 4194304 KiB
+[2025-04-03 19:16:48,912][INFO][kvm_controller,946]: Successfully set resources for vm-7e84bd43
+[2025-04-03 19:16:48,912][INFO][kvm_controller,299]: Starting VM vm-7e84bd43
+Waiting for VM vm-7e84bd43 to initialize. 10/120 seconds
+VM vm-7e84bd43 is up. IP: 192.168.122.160
+
+# relist resources:
+k2g -c -v vm-7e84bd43 -r -l             
+{
+  "memory_bytes": 4294967296,
+  "memory": "4 GiB",
+  "cpu": 4
+}
 ```
