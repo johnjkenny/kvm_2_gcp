@@ -234,8 +234,9 @@ Images:
 
 ### Deploy VM Locally (KVM)
 The deploy has basic functionality. It allows you deploy a KVM instance using a linux image stored in `/k2g/images`.
-It allows you specify a host name, but if you do not specify a name one will be generated using vm-<unique_id>.
-The other options are to specify the number of CPUs and memory to use. The default is 2 CPUs and 2048MB (2GB) of memory.
+It allows you specify a host name, but if you do not specify one will be generated using `vm-<unique_id>`. The other
+options are to specify the boot disk size in GB, number of CPUs and memory to use. The default is 10GB, 2 CPUs and
+2048MB (2GB) of memory.
 
 The deploy process will add the ansible user and provide its public ssh key to the instance. If you are running the tool
 with a non-root user then your current user name will also be added to the instance and your ssh public key will be parsed
@@ -248,6 +249,8 @@ There is a basic startup script that runs on first boot and all it does is set a
 `/var/log/startup-done.marker`. The deploy process will run an ansible playbook and use the ansible user to wait and
 check for the existence of the done flag. This is to ensure the deploy process has completely finished and the init
 ISO can be ejected, deleted, and the cdrom device removed from the instance.
+
+You will also have the ability to create custom images using the build command. More on that down on step 3.
 
 ```bash
 # Command Options:
@@ -264,6 +267,9 @@ options:
 
   -i IMAGE, --image IMAGE
                         Image to deploy
+
+  -s DISKSIZE, --diskSize DISKSIZE
+                        Disk size in GB. Default: 10GB
 
   -c CPU, --cpu CPU     Number of CPUs to use. Default: 2
 
