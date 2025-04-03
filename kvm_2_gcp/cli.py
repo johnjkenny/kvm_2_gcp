@@ -1,6 +1,11 @@
 from argparse import REMAINDER
 
 from kvm_2_gcp.arg_parser import ArgParser
+from kvm_2_gcp.remote_images import RockyImages
+from kvm_2_gcp.kvm_images import KVMImages
+from kvm_2_gcp.kvm_deploy import KVMDeploy
+from kvm_2_gcp.kvm_controller import KVMController
+from kvm_2_gcp.kvm_builder import KVMBuilder
 
 
 def parse_parent_args(args: dict):
@@ -120,7 +125,6 @@ def remote_images(parent_args: list = None):
 
 
 def parse_rocky_remote_image_args(args: dict):
-    from kvm_2_gcp.remote_images import RockyImages
     if args.get('list'):
         return RockyImages().display_cache(args['refresh'])
     if args.get('download'):
@@ -158,24 +162,30 @@ def rocky_remote_images(parent_args: list = None):
 
 
 def parse_image_args(args: dict):
-    from kvm_2_gcp.kvm_images import KVMImages
     if args.get('list'):
         return KVMImages().list_images()
     if args.get('delete'):
         return KVMImages().delete_image(args['delete'], args['force'])
+    if args.get('clone'):
+        return KVMImages().create_clone(args['clone'], args['name'], args['force'])
     return True
 
 
 def images(parent_args: list = None):
-    args = ArgParser('KVM-2-GCP Images', parent_args, {
+    args = ArgParser('KVM-2-GCP KVM Images', parent_args, {
         'list': {
             'short': 'l',
             'help': 'List images',
             'action': 'store_true'
         },
-        'create': {
+        'clone': {
             'short': 'c',
-            'help': 'Create image file of VM. Specify VM name',
+            'help': 'Clone VM boot disk to image (specify VM name)',
+        },
+        'name': {
+            'short': 'n',
+            'help': 'Name of the image. Default: GENERATE (image-<vm_name>)',
+            'default': 'GENERATE'
         },
         'delete': {
             'short': 'D',
@@ -183,7 +193,7 @@ def images(parent_args: list = None):
         },
         'force': {
             'short': 'F',
-            'help': 'Force delete image',
+            'help': 'Force action',
             'action': 'store_true'
         },
     }).set_arguments()
@@ -193,13 +203,17 @@ def images(parent_args: list = None):
 
 
 def parse_deploy_args(args: dict):
-    from kvm_2_gcp.kvm_deploy import KVMDeploy
     if args.get('image'):
+        if args.get('build'):
+            build_args = args.pop('build')
+            return builder(args, build_args)
         return KVMDeploy(args['name'], args['image'], args['cpu'], args['memory']).deploy()
-    else:
-        from kvm_2_gcp.kvm_images import KVMImages
-        print('Image not specified. Please specify an image to deploy from the list below:')
-        KVMImages().list_images()
+    if args.get('build'):
+        build_args = args.pop('build')
+        return builder(args, build_args)
+    images = KVMImages()
+    images.display_fail_msg('Image not specified. Please specify an image to deploy from the list below:')
+    images.list_images()
     return True
 
 
@@ -226,6 +240,11 @@ def deploy(parent_args: list = None):
             'type': int,
             'default': 2048
         },
+        'build': {
+            'short': 'b',
+            'help': 'Build KVM image',
+            'nargs': REMAINDER
+        }
     }).set_arguments()
     if not parse_deploy_args(args):
         exit(1)
@@ -233,9 +252,12 @@ def deploy(parent_args: list = None):
 
 
 def parse_controller_args(args: dict):
-    from kvm_2_gcp.kvm_controller import KVMController
     if args.get('list'):
         return KVMController().list_vms()
+    if args.get('networks'):
+        return network(args.get('vm', ''), args['networks'])
+    if args.get('disks'):
+        return disks(args.get('vm', ''), args['disks'])
     if not args.get('vm'):
         return KVMController().display_fail_msg('VM name not specified. Please specify a VM name.')
     if args.get('start'):
@@ -250,10 +272,6 @@ def parse_controller_args(args: dict):
         return KVMController().hard_reset_vm(args['vm'])
     if args.get('delete'):
         return KVMController().delete_vm(args['vm'], args['force'])
-    if args.get('networks'):
-        return network(args['vm'], args['networks'])
-    if args.get('disks'):
-        return disks(args['vm'], args['disks'])
     return True
 
 
@@ -320,7 +338,8 @@ def controller(parent_args: list = None):
 
 
 def parse_network_args(vm_name: str, args: dict):
-    from kvm_2_gcp.kvm_controller import KVMController
+    if not vm_name:
+        return KVMController().display_fail_msg('VM name not specified. Please specify a VM name.')
     if args.get('list'):
         return KVMController().display_vm_interfaces(vm_name)
     if args.get('add'):
@@ -353,7 +372,8 @@ def network(vm_name: str, parent_args: list = None):
 
 
 def parse_disk_args(vm_name: str, args: dict):
-    from kvm_2_gcp.kvm_controller import KVMController
+    if not vm_name:
+        return KVMController().display_fail_msg('VM name not specified. Please specify a VM name.')
     if args.get('list'):
         return KVMController().display_vm_disks(vm_name)
     if args.get('add'):
@@ -425,5 +445,33 @@ def disks(vm_name: str, parent_args: list = None):
         },
     }).set_arguments()
     if not parse_disk_args(vm_name, args):
+        exit(1)
+    exit(0)
+
+
+def parse_builder_args(dargs: dict, args: dict):
+    if args.get('list'):
+        return KVMBuilder().display_build_options()
+    if args.get('playbook'):
+        if not dargs.get('image'):
+            return KVMBuilder().display_fail_msg('Image not specified for deploy')
+        return KVMBuilder(dargs['name'], dargs['image'], dargs['cpu'], dargs['memory'],
+                          args['playbook']).run_build()
+    return True
+
+
+def builder(deploy_args: dict, parent_args: list = None):
+    args = ArgParser('KVM-2-GCP KVM Builder', parent_args, {
+        'list': {
+            'short': 'l',
+            'help': 'List available ansible playbooks to run for the build process',
+            'action': 'store_true'
+        },
+        'playbook': {
+            'short': 'p',
+            'help': 'Ansible playbook to run for the build process',
+        },
+    }).set_arguments()
+    if not parse_builder_args(deploy_args, args):
         exit(1)
     exit(0)

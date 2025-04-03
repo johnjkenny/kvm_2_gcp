@@ -1,0 +1,18 @@
+---
+- name: Build App1
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    app_name: app1
+    app_dir: /opt/{{ app_name }}
+
+  tasks:
+    - name: Wait for marker set
+      ansible.builtin.import_tasks: ../tasks/wait_for_startup_marker_tasks.yml
+
+    - name: Install Docker
+      ansible.builtin.import_tasks: ../tasks/install_docker.yml
+
+    - name: Deploy App1
+      ansible.builtin.import_tasks: ../tasks/deploy_app1.yml

@@ -176,8 +176,33 @@ k2g --remote --rocky --download Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.
 Image Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2 exists. Overwrite? (y/n): n
 ```
 
-# List Local Images:
+### KVM Image Management:
+The image command allows you to list and delete local images. It also allows you to clone a VM boot disk to an image.
 
+```bash
+# Command options:
+k2g -i -h
+usage: k2g [-h] [-l] [-c CLONE] [-n NAME] [-D DELETE] [-F]
+
+KVM-2-GCP KVM Images
+
+options:
+  -h, --help            show this help message and exit
+
+  -l, --list            List images
+
+  -c CLONE, --clone CLONE
+                        Clone VM boot disk to image (specify VM name)
+
+  -n NAME, --name NAME  Name of the image. Default: GENERATE (image-<vm_name>)
+
+  -D DELETE, --delete DELETE
+                        Delete image
+
+  -F, --force           Force action
+```
+
+1. List available images:
 ```bash
 # k2g -i -l
 k2g --images --list
@@ -186,11 +211,24 @@ Images:
   Rocky-9-GenericCloud.latest.x86_64.qcow2
 ```
 
-# Delete Local Image:
+2. Delete Local Image:
 ```bash
 # Force action, drop --force (-F) to prompt for confirmation:
 k2g --images --delete Rocky-9-GenericCloud.latest.x86_64.qcow2 --force
 [2025-03-30 18:12:42,620][INFO][kvm_images,35]: Deleted image Rocky-9-GenericCloud.latest.x86_64.qcow2
+```
+
+3. Clone VM Boot Disk to Image:
+```bash
+k2g -i -c vm-c3183891
+VM vm-c3183891 is running. Shutdown VM? [y/n] y
+[2025-04-03 15:32:17,792][INFO][kvm_controller,260]: Shutting down VM vm-c3183891
+Waiting for VM vm-c3183891 to shutdown. 1/60 seconds
+
+k2g -i -l
+Images:
+  Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2
+  image-vm-c3183891.qcow2
 ```
 
 
@@ -231,6 +269,8 @@ options:
 
   -m MEMORY, --memory MEMORY
                         Memory to use in MB. Default: 2048 (2GB)
+
+  -b ..., --build ...   Build KVM image
 ```
 
 1. Deploy a VM:
@@ -277,6 +317,149 @@ ssh 192.168.124.75
 ssh -i kvm_2_gcp/k2g_env/keys/.ansible_rsa ansible@192.168.124.75
 [ansible@vm-2de60914 ~]$ sudo su
 [root@vm-2de60914 ansible]#
+```
+
+3. Build Image:
+The build command allows you to specify an ansible build playbook to run on the VM after it has been deployed. It will
+then create a qcow2 image from the VM and store it in `/k2g/images`. On a successful build the VM will be deleted and
+you can then deploy VMs from your custom image. The image will have the ansible user embedded with its public key. If
+you do not intend for this to be in your custom image then please ensure you create an ansible task that will cleanup
+the ansible user and public key as part of the build process. The build playbooks are stored in
+`ansible/playbooks/builds`. The build tasks are located in `ansible/playbooks/tasks`.
+
+The following example will deploy a build called `app1_build.yml` which installs docker on the VM and runs a
+docker-compose file that deploys three containers, nginx, php, and mysql.
+
+```bash
+# build command options:
+k2g -d -b -h                                                                        
+usage: k2g [-h] [-l] [-p PLAYBOOK] [-P]
+
+KVM-2-GCP KVM Builder
+
+options:
+  -h, --help            show this help message and exit
+
+  -l, --list            List available ansible playbooks to run for the build process
+
+  -p PLAYBOOK, --playbook PLAYBOOK
+                        Ansible playbook to run for the build process
+
+
+# List available builds:
+k2g -d -b -l
+Available builds:
+  app1_build.yml
+
+
+# run build:
+k2g -d -i Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2 -b -p app1_build.yml
+Waiting for VM build-2025-04-03--07-38-53 to initialize. 20/120 seconds
+VM build-2025-04-03--07-38-53 is up. IP: 192.168.122.142
+Waiting for 192.168.122.142:22 to be open
+192.168.122.142:22 is open, running Ansible playbook
+
+PLAY [Build App1] **************************************************************
+
+TASK [Gathering Facts] *********************************************************
+ok: [build-2025-04-03--07-38-53]
+
+TASK [Wait for startup script marker file] *************************************
+ok: [build-2025-04-03--07-38-53]
+
+TASK [Success marker found] ****************************************************
+ok: [build-2025-04-03--07-38-53] => {
+    "msg": "Startup completed — marker file detected."
+}
+
+TASK [Install dependencies (YUM/DNF)] ******************************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Set up Docker repo on RedHat-family systems] *****************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Install Docker CE] *******************************************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Enable and start Docker service] *****************************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Create app directory structure] ******************************************
+changed: [build-2025-04-03--07-38-53] => (item=web)
+changed: [build-2025-04-03--07-38-53] => (item=php)
+changed: [build-2025-04-03--07-38-53] => (item=mysql/db)
+
+TASK [Copy Docker Compose file] ************************************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Copy web container files] ************************************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Copy php container files] ************************************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Copy db container files] *************************************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Copy web index file] *****************************************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Write environment variables to file] *************************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Set ownership of copied files] *******************************************
+changed: [build-2025-04-03--07-38-53]
+
+TASK [Deploy containers] *******************************************************
+changed: [build-2025-04-03--07-38-53]
+
+PLAY RECAP *********************************************************************
+build-2025-04-03--07-38-53 : ok=16   changed=13   unreachable=0    failed=0    skipped=4    rescued=0    ignored=0   
+[2025-04-03 14:43:50,616][INFO][kvm_controller,515]: Ejected /k2g/vms/build-2025-04-03--07-38-53/cidata.iso from build-2025-04-03--07-38-53
+[2025-04-03 14:43:51,155][INFO][kvm_controller,194]: Removed sdb from build-2025-04-03--07-38-53
+Successfully deployed VM build-2025-04-03--07-38-53 IP: 192.168.122.142 User Access: ansible
+[2025-04-03 14:43:51,183][INFO][kvm_controller,260]: Shutting down VM build-2025-04-03--07-38-53
+Waiting for VM build-2025-04-03--07-38-53 to shutdown. 11/60 seconds
+[2025-04-03 14:44:21,828][INFO][kvm_controller,238]: Deleting VM build-2025-04-03--07-38-53
+[2025-04-03 14:44:27,942][INFO][kvm_controller,55]: Deleting VM directory /k2g/vms/build-2025-04-03--07-38-53
+[2025-04-03 14:44:28,217][INFO][kvm_builder,55]: Successfully built image build-2025-04-03--07-38-53.qcow2
+
+# List available images:
+k2g -i -l                                                                           
+Images:
+  Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2
+  build-2025-04-03--07-38-53.qcow2
+
+
+# deploy new image:
+k2g -d -i build-2025-04-03--07-38-53.qcow2                                          
+Waiting for VM vm-7954f510 to initialize. 25/120 seconds
+VM vm-7954f510 is up. IP: 192.168.122.94
+Waiting for 192.168.122.94:22 to be open
+192.168.122.94:22 is open, running Ansible playbook
+
+PLAY [Wait for startup-done.marker on target VM] *******************************
+
+TASK [Wait for startup script marker file] *************************************
+ok: [vm-7954f510]
+
+TASK [Success marker found] ****************************************************
+ok: [vm-7954f510] => {
+    "msg": "Startup completed — marker file detected."
+}
+
+PLAY RECAP *********************************************************************
+vm-7954f510                : ok=2    changed=0    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0   
+[2025-04-03 15:03:15,425][INFO][kvm_controller,515]: Ejected /k2g/vms/vm-7954f510/cidata.iso from vm-7954f510
+[2025-04-03 15:03:15,965][INFO][kvm_controller,194]: Removed sdb from vm-7954f510
+Successfully deployed VM vm-7954f510 IP: 192.168.122.94 User Access: ansible, myUser
+
+# Access the system and verify the containers are running:
+docker ps -a
+CONTAINER ID   IMAGE      COMMAND                  CREATED          STATUS              PORTS                                 NAMES
+4c6f01139303   app1_web   "/docker-entrypoint.…"   21 minutes ago   Up About a minute   0.0.0.0:80->80/tcp, [::]:80->80/tcp   app1-app1_web-1
+b4e4fcefd59a   app1_php   "docker-php-entrypoi…"   21 minutes ago   Up About a minute   9000/tcp                              app1-app1_php-1
+8155e2c1b864   app1_db    "/custom-entrypoint.…"   21 minutes ago   Up About a minute   3306/tcp, 33060/tcp                   app1-app1_db-1
 ```
 
 

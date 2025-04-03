@@ -181,3 +181,5 @@ kvm_2_gcp/ansible/clients/*
 !kvm_2_gcp/ansible/clients/*__init__.py
 
 .ansible/
+
+notes.txt
