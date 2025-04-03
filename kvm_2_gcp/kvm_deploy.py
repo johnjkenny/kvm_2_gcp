@@ -17,13 +17,13 @@ class KVMDeploy(Utils):
         if name == 'GENERATE':
             name = f'vm-{uuid4().hex[:8]}'
         self.__image = image
-        self.__name = name
+        self._name = name
         self.__cpu = cpu
         self.__memory = memory
-        self.__deploy_dir = Path(f'{self.vm_dir}/{self.__name}')
+        self.__deploy_dir = Path(f'{self.vm_dir}/{self._name}')
         self.__users = ['ansible']
         self.__startup = 'default-startup'
-        self.__playbook = playbook
+        self._playbook = playbook
         if add_user:
             user = getpass.getuser()
             if user == 'root':
@@ -47,13 +47,13 @@ class KVMDeploy(Utils):
     def __create_cmd(self):
         # Set os-variant to linux2022 for now, but create a parsing tool to get the os-variant from the image
         return f'''virt-install \
---name={self.__name} \
+--name={self._name} \
 --os-variant=linux2022 \
 --ram={self.__memory} \
 --vcpus={self.__cpu} \
 --import \
---disk path={self.__boot_disk},bus=scsi,serial={self.__name}-boot,target=sda \
---disk path={self.__iso_file},device=cdrom,bus=scsi,serial={self.__name}-cdrom \
+--disk path={self.__boot_disk},bus=scsi,serial={self._name}-boot,target=sda \
+--disk path={self.__iso_file},device=cdrom,bus=scsi,serial={self._name}-cdrom \
 --network bridge=virbr0,model=virtio \
 --graphics vnc,listen=0.0.0.0 \
 --noautoconsole'''
@@ -130,7 +130,7 @@ class KVMDeploy(Utils):
             with open(f'{self.template_dir}/meta-data.yml', 'r') as f:
                 data = f.read()
             if data:
-                data = data.replace('<VM_NAME>', self.__name)
+                data = data.replace('<VM_NAME>', self._name)
                 with open(f'{self.__deploy_dir}/iso/meta-data', 'w') as f:
                     f.write(data)
                 return True
@@ -160,7 +160,7 @@ class KVMDeploy(Utils):
                 copy2(image_file, self.__boot_disk)
                 return True
             except Exception:
-                self.log.exception(f'Failed to create VM {self.__name} boot disk')
+                self.log.exception(f'Failed to create VM {self._name} boot disk')
         else:
             self.log.error(f'Image {self.__image} not found')
         return False
@@ -173,13 +173,13 @@ class KVMDeploy(Utils):
 
     def __display_vm_info(self, ip: str):
         users = ', '.join(self.__users)
-        return self.display_success_msg(f'Successfully deployed VM {self.__name} IP: {ip} User Access: {users}')
+        return self.display_success_msg(f'Successfully deployed VM {self._name} IP: {ip} User Access: {users}')
 
     def __create_vm(self):
         if self._run_cmd(self.__create_cmd)[1]:
-            ip = self.controller._wait_for_vm_init(self.__name)
-            if ip and self.is_port_open(ip) and self.run_ansible_playbook(ip, self.__name, self.__playbook):
-                if self.controller.eject_instance_iso(self.__name, True):
+            ip = self.controller._wait_for_vm_init(self._name)
+            if ip and self.is_port_open(ip) and self.run_ansible_playbook(ip, self._name, self._playbook):
+                if self.controller.eject_instance_iso(self._name, True):
                     return self.__cleanup_iso_data() and self.__display_vm_info(ip)
         return False
 
@@ -187,6 +187,6 @@ class KVMDeploy(Utils):
         for method in [self.__create_vm_directory, self.__create_vm_boot_disk, self.__set_user_cidata,
                        self.__set_meta_cidata, self.__set_startup_script, self.__create_cidata_iso, self.__create_vm]:
             if not method():
-                self.log.error(f'Failed to deploy VM {self.__name}')
+                self.log.error(f'Failed to deploy VM {self._name}')
                 return False
         return True
