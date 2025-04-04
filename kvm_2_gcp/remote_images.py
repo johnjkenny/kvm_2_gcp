@@ -7,6 +7,7 @@ from os import remove
 
 import requests
 from bs4 import BeautifulSoup
+from google.cloud import compute_v1
 
 from kvm_2_gcp.utils import Utils
 
@@ -264,3 +265,36 @@ class RockyImages(RemoteImage):
                 self.log.error('Failed to refresh Rocky cloud image cache data')
                 return False
         return self._save_cache()
+
+
+class GCPImages(Utils):
+    def __init__(self, project_id: str):
+        super().__init__()
+        self.project_id = project_id if project_id != 'default' else self._load_default_project_id()
+        self.__client = None
+
+    @property
+    def client(self):
+        if self.__client is None:
+            try:
+                self.__client = compute_v1.ImagesClient(credentials=self.creds)
+            except Exception:
+                self.log.exception('Failed to get GCP image client')
+        return self.__client
+
+    def get_latest_image(self, family_name: str):
+        return self.client.get_from_family(project=self.project_id, family=family_name)
+
+    def get_image(self, image_name: str):
+        return self.client.get(project=self.project_id, image=image_name)
+
+    def list_images_from_family(self, prefix: str):
+        images = []
+        for image in self.client.list(project=self.project_id):
+            if image.family and image.family.startswith(prefix):
+                images.append(image)
+        return images
+
+    def display_images(self, family_name: str):
+        images = self.list_images_from_family(family_name)
+        return self.display_info_msg(f'GCP {family_name}:\n  ' + '\n  '.join([image.name for image in images]))

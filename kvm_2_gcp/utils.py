@@ -86,7 +86,16 @@ class Utils():
         Returns:
             str: default service account file path
         """
-        return f'{Path(__file__).parent}/k2g_env/keys/default_sa'
+        return f'{Path(__file__).parent}/k2g_env/default_sa'
+
+    @property
+    def default_project_id(self) -> str:
+        """Get the default project ID
+
+        Returns:
+            str: default project ID
+        """
+        return f'{Path(__file__).parent}/k2g_env/default_project_id'
 
     @property
     def sa_file(self) -> str:
@@ -227,6 +236,14 @@ class Utils():
         except Exception:
             self.log.exception('Failed to create credentials file')
         return {}
+
+    def _load_default_project_id(self):
+        try:
+            with open(self.default_project_id, 'r') as f:
+                return f.read().strip()
+        except Exception:
+            self.log.exception('Failed to get default project ID')
+        return ''
 
     def __create_ansible_client_directory(self, client_dir: Path, name: str, ip: str) -> bool:
         """Create the Ansible client directory and inventory file

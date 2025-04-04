@@ -199,6 +199,9 @@ options:
   -D DELETE, --delete DELETE
                         Delete image
 
+  -ug ..., --uploadGCP ...
+                        Upload image to GCP
+
   -F, --force           Force action
 ```
 
@@ -230,6 +233,9 @@ Images:
   Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2
   image-vm-c3183891.qcow2
 ```
+
+4. Upload Image to GCP:
+We will cover `--uploadGCP` option further down in the document under KVM Image Upload section
 
 
 ### Deploy VM Locally (KVM)
@@ -1210,4 +1216,59 @@ k2g -c -v vm-7e84bd43 -r -l
   "memory": "4 GiB",
   "cpu": 4
 }
+```
+
+# KVM Image Upload
+This tool allows you to upload KVM images to GCP. The tool is under `k2g --images --uploadGCP`. The tool uploads the
+.qcow2 image to a GCP bucket, then it runs a cloud build job that imports the image to GCP. The .qcow2 image is uploaded
+to the bucket in a subdirectory called `k2g-images`. The import uses a temp directory called `k2g-tmp` to store the
+image build files. The tool will delete the uploaded .qcow2 image and the temp files after the build job runs as a
+cleanup step.
+
+```bash
+# Command options:
+k2g --images --uploadGCP -h
+usage: k2g [-h] [-i IMAGE] [-n NAME] [-f FAMILY] [-b BUCKET] [-s SERVICEACCOUNT] [-p PROJECTID]
+
+KVM-2-GCP Image Upload To GCP
+
+options:
+  -h, --help            show this help message and exit
+
+  -i IMAGE, --image IMAGE
+                        Image to upload
+
+  -n NAME, --name NAME  Name of the image in GCP. Default: <image_name>
+
+  -f FAMILY, --family FAMILY
+                        Image family name to tag image in GCP. Default: k2g-images
+
+  -b BUCKET, --bucket BUCKET
+                        Bucket to use for image upload. Default: default
+
+  -s SERVICEACCOUNT, --serviceAccount SERVICEACCOUNT
+                        Service account to use. Default: default
+
+  -p PROJECTID, --projectID PROJECTID
+                        GCP project ID. Default: default
+```
+
+1. Upload KVM image to GCP:
+```bash
+# Using the default options:
+k2g -i -ug -i image-vm-c3183891.qcow2 
+[2025-04-04 19:30:41,519][INFO][gcp_image_upload,50]: Uploading image-vm-c3183891.qcow2 to GCP bucket
+[2025-04-04 19:36:35,712][INFO][cloud_storage,191]: Successfully uploaded file /k2g/images/image-vm-c3183891.qcow2 to k2g-images/image-vm-c3183891.qcow2
+[2025-04-04 19:36:36,896][INFO][gcp_image_upload,83]: Image import build started: 8e024e99-aab4-4cab-82bf-7885e3adc90d
+Build 8e024e99-aab4-4cab-82bf-7885e3adc90d is running...
+Build 8e024e99-aab4-4cab-82bf-7885e3adc90d is running...
+...
+[2025-04-04 19:47:12,850][INFO][gcp_image_upload,63]: Image import build completed successfully: 8e024e99-aab4-4cab-82bf-7885e3adc90d
+[2025-04-04 19:47:13,363][INFO][cloud_storage,436]: Successfully deleted object k2g-images/image-vm-c3183891.qcow2
+[2025-04-04 19:47:13,773][INFO][cloud_storage,441]: Successfully deleted object k2g-tmp/2025-04-04--12-30-41/
+
+# Use the --remoteImages (-r) options to list the images in GCP:
+k2g --remoteImages --gcp --list
+GCP k2g-images:
+  image-vm-c3183891
 ```
