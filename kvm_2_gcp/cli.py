@@ -1,7 +1,7 @@
 from argparse import REMAINDER
 
 from kvm_2_gcp.arg_parser import ArgParser
-from kvm_2_gcp.remote_images import RockyImages
+from kvm_2_gcp.remote_images import RockyImages, GCPImages
 from kvm_2_gcp.kvm_images import KVMImages
 from kvm_2_gcp.kvm_deploy import KVMDeploy
 from kvm_2_gcp.kvm_controller import KVMController
@@ -89,6 +89,8 @@ def init(parent_args: list = None):
 def parse_remote_image_args(args: dict):
     if args.get('rocky'):
         return rocky_remote_images(args['rocky'])
+    if args.get('gcp'):
+        return gcp_remote_images(args['gcp'])
     return True
 
 
@@ -108,15 +110,6 @@ def remote_images(parent_args: list = None):
             'short': 'g',
             'help': 'GCP remote images',
             'nargs': REMAINDER
-        },
-
-        'project': {
-            'short': 'p',
-            'help': 'Project ID when pulling from cloud provider',
-        },
-        'family': {
-            'short': 'f',
-            'help': 'Image family when pulling from cloud provider',
         },
     }).set_arguments()
     if not parse_remote_image_args(args):
@@ -161,6 +154,35 @@ def rocky_remote_images(parent_args: list = None):
     exit(0)
 
 
+def parse_gcp_remote_image_args(args: dict):
+    if args.get('list'):
+        return GCPImages(args['project']).display_images(args['family'])
+    return True
+
+
+def gcp_remote_images(parent_args: list = None):
+    args = ArgParser('KVM-2-GCP Rocky Remote Images', parent_args, {
+        'list': {
+            'short': 'l',
+            'help': 'List Images',
+            'action': 'store_true'
+        },
+        'project': {
+            'short': 'p',
+            'help': 'GCP project ID. Default: default',
+            'default': 'default'
+        },
+        'family': {
+            'short': 'f',
+            'help': 'Image family name. Default: k2g-images',
+            'default': 'k2g-images'
+        },
+    }).set_arguments()
+    if not parse_gcp_remote_image_args(args):
+        exit(1)
+    exit(0)
+
+
 def parse_image_args(args: dict):
     if args.get('list'):
         return KVMImages().list_images()
@@ -168,6 +190,8 @@ def parse_image_args(args: dict):
         return KVMImages().delete_image(args['delete'], args['force'])
     if args.get('clone'):
         return KVMImages().create_clone(args['clone'], args['name'], args['force'])
+    if args.get('uploadGCP'):
+        return upload_to_gcp(args['uploadGCP'])
     return True
 
 
@@ -191,6 +215,11 @@ def images(parent_args: list = None):
             'short': 'D',
             'help': 'Delete image',
         },
+        'uploadGCP': {
+            'short': 'ug',
+            'help': 'Upload image to GCP',
+            'nargs': REMAINDER
+        },
         'force': {
             'short': 'F',
             'help': 'Force action',
@@ -198,6 +227,51 @@ def images(parent_args: list = None):
         },
     }).set_arguments()
     if not parse_image_args(args):
+        exit(1)
+    exit(0)
+
+
+def parse_upload_to_gcp_args(args: dict):
+    from kvm_2_gcp.gcp_image_upload import GCPImageUpload
+    if args.get('image'):
+        return GCPImageUpload(args['image'], args['name'], args['family'], args['bucket'], args['serviceAccount'],
+                              args['projectID']).upload_image()
+    return True
+
+
+def upload_to_gcp(parent_args: list = None):
+    args = ArgParser('KVM-2-GCP Image Upload To GCP', parent_args, {
+        'image': {
+            'short': 'i',
+            'help': 'Image to upload'
+        },
+        'name': {
+            'short': 'n',
+            'help': 'Name of the image in GCP. Default: <image_name>',
+            'default': 'default'
+        },
+        'family': {
+            'short': 'f',
+            'help': 'Image family name to tag image in GCP. Default: k2g-images',
+            'default': 'k2g-images'
+        },
+        'bucket': {
+            'short': 'b',
+            'help': 'Bucket to use for image upload. Default: default',
+            'default': 'default'
+        },
+        'serviceAccount': {
+            'short': 's',
+            'help': 'Service account to use. Default: default',
+            'default': 'default'
+        },
+        'projectID': {
+            'short': 'p',
+            'help': 'GCP project ID. Default: default',
+            'default': 'default'
+        },
+    }).set_arguments()
+    if not parse_upload_to_gcp_args(args):
         exit(1)
     exit(0)
 

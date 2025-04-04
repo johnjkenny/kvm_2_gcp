@@ -14,8 +14,18 @@ charset-normalizer==3.4.1
 click==8.1.8
 cryptography==44.0.2
 filelock==3.18.0
+google-api-core==2.24.2
 google-auth==2.38.0
+google-cloud-build==3.31.1
+google-cloud-compute==1.29.0
+google-cloud-core==2.4.3
+google-cloud-storage==3.1.0
 google-crc32c==1.7.1
+google-resumable-media==2.7.2
+googleapis-common-protos==1.69.2
+grpc-google-iam-v1==0.14.2
+grpcio==1.71.0
+grpcio-status==1.71.0
 idna==3.10
 importlib_metadata==8.6.1
 Jinja2==3.1.6
@@ -28,6 +38,8 @@ packaging==24.2
 pathspec==0.12.1
 pexpect==4.9.0
 platformdirs==4.3.7
+proto-plus==1.26.1
+protobuf==5.29.4
 ptyprocess==0.7.0
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
