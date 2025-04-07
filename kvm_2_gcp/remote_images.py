@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from google.cloud import compute_v1
 
 from kvm_2_gcp.utils import Utils
+from kvm_2_gcp.gcp_controller import GCPController
 
 
 class Web():
@@ -267,34 +268,76 @@ class RockyImages(RemoteImage):
         return self._save_cache()
 
 
-class GCPImages(Utils):
+class GCPImages(GCPController):
     def __init__(self, project_id: str):
         super().__init__()
         self.project_id = project_id if project_id != 'default' else self._load_default_project_id()
-        self.__client = None
 
     @property
-    def client(self):
-        if self.__client is None:
-            try:
-                self.__client = compute_v1.ImagesClient(credentials=self.creds)
-            except Exception:
-                self.log.exception('Failed to get GCP image client')
-        return self.__client
+    def public_image_info(self):
+        return {
+            'debian-cloud': 'debian-12',
+            'ubuntu-os-cloud': 'ubuntu-2404-lts-amd64',
+            'rocky-linux-cloud': 'rocky-linux-9-optimized-gcp',
+            'cos-cloud': 'cos-117-lts',
+        }
 
     def get_latest_image(self, family_name: str):
-        return self.client.get_from_family(project=self.project_id, family=family_name)
+        return self.image_client.get_from_family(project=self.project_id, family=family_name)
 
     def get_image(self, image_name: str):
-        return self.client.get(project=self.project_id, image=image_name)
+        return self.image_client.get(project=self.project_id, image=image_name)
 
-    def list_images_from_family(self, prefix: str):
+    def list_images_from_family(self, search: str):
         images = []
-        for image in self.client.list(project=self.project_id):
-            if image.family and image.family.startswith(prefix):
+        for image in self.image_client.list(project=self.project_id):
+            if image.family and image.family.startswith(search):
                 images.append(image)
         return images
 
     def display_images(self, family_name: str):
         images = self.list_images_from_family(family_name)
         return self.display_info_msg(f'GCP {family_name}:\n  ' + '\n  '.join([image.name for image in images]))
+
+    def display_public_image_info(self):
+        for project, family in self.public_image_info.items():
+            self.display_info_msg(f'Project: {project}, Family: {family}')
+        return True
+
+    def __create_image_obj(self, zone: str, vm_name: str, image_name: str,
+                           family: str = None) -> compute_v1.Image | None:
+        instance = self.get_instance(self.project_id, zone, vm_name)
+        if instance:
+            boot_disk = next(disk for disk in instance.disks if disk.boot)
+            source_disk = boot_disk.source
+            image = compute_v1.Image(name=image_name, source_disk=source_disk)
+            if family:
+                image.family = family
+            return image
+        return None
+
+    def create_clone(self, zone: str, vm_name: str, image_name: str, family: str = None,
+                     force: bool = False):
+        image_name = image_name if image_name != 'GENERATE' else f'image-{vm_name}'
+        if vm_name in self.get_running_instances(self.project_id, zone):
+            if force or input(f'Instance {vm_name} is running. Stop it? (y/n): ').lower() == 'y':
+                if not self.stop_instance(self.project_id, zone, vm_name):
+                    self.log.error(f'Failed to stop GCP instance {vm_name}')
+                    return False
+            else:
+                self.log.error(f'Instance {vm_name} is running. Cannot create image')
+                return False
+        image = self.__create_image_obj(zone, vm_name, image_name, family)
+        if image and self.image_client is not None:
+            try:
+                operation = self.image_client.insert(project=self.project_id, image_resource=image)
+            except Exception:
+                self.log.exception('Failed to create GCP image')
+                return False
+            return self._wait_for_global_operation(operation)
+        return False
+
+
+'''
+# ToDo: add caching
+'''
