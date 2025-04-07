@@ -6,6 +6,9 @@ from kvm_2_gcp.kvm_images import KVMImages
 from kvm_2_gcp.kvm_deploy import KVMDeploy
 from kvm_2_gcp.kvm_controller import KVMController
 from kvm_2_gcp.kvm_builder import KVMBuilder
+from kvm_2_gcp.gcp_deploy import GCPDeploy
+from kvm_2_gcp.gcp_builder import GCPBuilder
+from kvm_2_gcp.gcp_controller import GCPController
 
 
 def parse_parent_args(args: dict):
@@ -17,6 +20,10 @@ def parse_parent_args(args: dict):
         return images(args['images'])
     if args.get('deploy'):
         return deploy(args['deploy'])
+    if args.get('remoteDeploy'):
+        return remote_deploy(args['remoteDeploy'])
+    if args.get('remoteController'):
+        return remote_controller(args['remoteController'])
     if args.get('init'):
         return init(args['init'])
     return True
@@ -26,12 +33,22 @@ def k2g_parent():
     args = ArgParser('KVM-2-GCP Commands', None, {
         'init': {
             'short': 'I',
-            'help': 'Initialize KVM-2-GCP environment',
+            'help': 'Initialize KVM-2-GCP environment (k2g-init)',
             'nargs': REMAINDER
         },
         'remoteImages': {
-            'short': 'r',
+            'short': 'ri',
             'help': 'Remote Images (k2g-remote-images)',
+            'nargs': REMAINDER
+        },
+        'remoteDeploy': {
+            'short': 'rd',
+            'help': 'Deploy VM remotely in GCP (k2g-remote-deploy)',
+            'nargs': REMAINDER
+        },
+        'remoteController': {
+            'short': 'rc',
+            'help': 'Remote Controller (k2g-remote-controller)',
             'nargs': REMAINDER
         },
         'images': {
@@ -39,15 +56,9 @@ def k2g_parent():
             'help': 'Images (k2g-images)',
             'nargs': REMAINDER
         },
-        'remoteDeploy': {},
         'deploy': {
             'short': 'd',
-            'help': 'Deploy VM locally (KVM)',
-            'nargs': REMAINDER
-        },
-        'build': {
-            'short': 'b',
-            'help': 'Build custom image and push to GCP',
+            'help': 'Deploy VM locally with KVM (k2g-deploy)',
             'nargs': REMAINDER
         },
         'controller': {
@@ -91,6 +102,8 @@ def parse_remote_image_args(args: dict):
         return rocky_remote_images(args['rocky'])
     if args.get('gcp'):
         return gcp_remote_images(args['gcp'])
+    if args.get('ubuntu'):
+        return ubuntu_remote_images(args['ubuntu'])
     return True
 
 
@@ -108,7 +121,7 @@ def remote_images(parent_args: list = None):
         },
         'gcp': {
             'short': 'g',
-            'help': 'GCP remote images',
+            'help': 'GCP remote images (k2g-remote-gcp-images)',
             'nargs': REMAINDER
         },
     }).set_arguments()
@@ -154,29 +167,103 @@ def rocky_remote_images(parent_args: list = None):
     exit(0)
 
 
-def parse_gcp_remote_image_args(args: dict):
+def parse_ubuntu_remote_image_args(args: dict):
     if args.get('list'):
-        return GCPImages(args['project']).display_images(args['family'])
+        pass
+        # return RockyImages().display_cache(args['refresh'])
+    if args.get('download'):
+        pass
+        # return RockyImages().download_image(args['download'], args['force'])
+    if args.get('refresh'):
+        pass
+        # return RockyImages().refresh_cache()
     return True
 
 
-def gcp_remote_images(parent_args: list = None):
-    args = ArgParser('KVM-2-GCP Rocky Remote Images', parent_args, {
+def ubuntu_remote_images(parent_args: list = None):
+    args = ArgParser('KVM-2-GCP Ubuntu Remote Images', parent_args, {
         'list': {
             'short': 'l',
             'help': 'List Images',
             'action': 'store_true'
+        },
+        'download': {
+            'short': 'd',
+            'help': 'Download remote image',
+        },
+        'refresh': {
+            'short': 'r',
+            'help': 'Refresh cache data',
+            'action': 'store_true'
+        },
+        'force': {
+            'short': 'F',
+            'help': 'Force actions',
+            'action': 'store_true'
+        },
+    }).set_arguments()
+    if not parse_ubuntu_remote_image_args(args):
+        exit(1)
+    exit(0)
+
+
+def parse_gcp_remote_image_args(args: dict):
+    if args.get('list'):
+        return GCPImages(args['project']).display_images(args['family'])
+    if args.get('show'):
+        return GCPImages(args['project']).display_public_image_info()
+    if args.get('clone'):
+        return GCPImages(args['project']).create_clone(args['zone'], args['clone'], args['name'], args['family'],
+                                                       args['force'])
+    return True
+
+
+def gcp_remote_images(parent_args: list = None):
+    args = ArgParser('KVM-2-GCP GCP Remote Images', parent_args, {
+        'list': {
+            'short': 'l',
+            'help': 'List Images',
+            'action': 'store_true'
+        },
+        'name': {
+            'short': 'n',
+            'help': 'Name of the image. Default: GENERATE (image-<vm_name>)',
+            'default': 'GENERATE'
         },
         'project': {
             'short': 'p',
             'help': 'GCP project ID. Default: default',
             'default': 'default'
         },
+        'zone': {
+            'short': 'z',
+            'help': 'GCP zone. Default: us-central1-a',
+            'default': 'us-central1-a'
+        },
         'family': {
             'short': 'f',
             'help': 'Image family name. Default: k2g-images',
             'default': 'k2g-images'
         },
+        'force': {
+            'short': 'F',
+            'help': 'Force actions',
+            'action': 'store_true'
+        },
+        'show': {
+            'short': 's',
+            'help': 'Show public image info for project and family',
+            'action': 'store_true'
+        },
+        'refresh': {
+            'short': 'r',
+            'help': 'Refresh cache data',
+            'action': 'store_true'
+        },
+        'clone': {
+            'short': 'c',
+            'help': 'Clone VM boot disk to image (specify VM name)',
+        }
     }).set_arguments()
     if not parse_gcp_remote_image_args(args):
         exit(1)
@@ -598,5 +685,173 @@ def builder(deploy_args: dict, parent_args: list = None):
         },
     }).set_arguments()
     if not parse_builder_args(deploy_args, args):
+        exit(1)
+    exit(0)
+
+
+def parse_remote_deploy_args(args: dict):
+    if args.get('image'):
+        if args.get('build'):
+            build_args = args.pop('build')
+            return gcp_builder(args, build_args)
+        return GCPDeploy(args['name'], args['image'], args['imageProject'], args['diskSize'], args['diskType'],
+                         args['projectID'], args['zone'], args['machineType'], args['networkTags']).deploy()
+    if args.get('build'):
+        build_args = args.pop('build')
+        return gcp_builder(args, build_args)
+    return True
+
+
+def remote_deploy(parent_args: list = None):
+    args = ArgParser('KVM-2-GCP Remote Deploy (GCP)', parent_args, {
+        'name': {
+            'short': 'n',
+            'help': 'Name of the VM. Default: GENERATE (vm-<unique_id>)',
+            'default': 'GENERATE'
+        },
+        'image': {
+            'short': 'i',
+            'help': 'Image to deploy'
+        },
+        'imageProject': {
+            'short': 'ip',
+            'help': 'GCP image project. Default: default',
+            'default': 'default'
+        },
+        'projectID': {
+            'short': 'p',
+            'help': 'GCP project ID. Default: default',
+            'default': 'default'
+        },
+        'zone': {
+            'short': 'z',
+            'help': 'GCP zone. Default: us-central1-a',
+            'default': 'us-central1-a'
+        },
+        'machineType': {
+            'short': 'mt',
+            'help': 'GCP machine type. Default: e2-highcpu-2 (2 CPUs, 2GB RAM)',
+            'default': 'e2-highcpu-2'
+        },
+        'diskSize': {
+            'short': 's',
+            'help': 'Disk size in GB. Default: 10GB',
+            'type': int,
+            'default': 10
+        },
+        'diskType': {
+            'short': 'dt',
+            'help': 'Disk type. Default: pd-balanced',
+            'choices': ['pd-balanced', 'pd-ssd', 'pd-standard'],
+            'default': 'pd-balanced'
+        },
+        'networkTags': {
+            'short': 'nt',
+            'help': 'Network tags for the VM. Default: ssh',
+            'nargs': '+',
+            'default': ['ssh']
+        },
+        'build': {
+            'short': 'b',
+            'help': 'Build GCP image',
+            'nargs': REMAINDER
+        }
+    }).set_arguments()
+    if not parse_remote_deploy_args(args):
+        exit(1)
+    exit(0)
+
+
+def parse_gcp_builder_args(dargs: dict, args: dict):
+    if args.get('list'):
+        return GCPBuilder().display_build_options()
+    if args.get('playbook'):
+        if not dargs.get('image'):
+            return GCPBuilder().display_fail_msg('Image not specified for deploy')
+        return GCPBuilder(dargs['name'], dargs['image'], dargs['imageProject'], dargs['diskSize'], dargs['diskType'],
+                          dargs['projectID'], dargs['zone'], dargs['machineType'], dargs['networkTags'],
+                          args['playbook'], args['family']).run_build()
+    return True
+
+
+def gcp_builder(deploy_args: dict, parent_args: list = None):
+    args = ArgParser('KVM-2-GCP GCP Builder', parent_args, {
+        'list': {
+            'short': 'l',
+            'help': 'List available ansible playbooks to run for the build process',
+            'action': 'store_true'
+        },
+        'family': {
+            'short': 'f',
+            'help': 'Image family name. Default: k2g-images',
+            'default': 'k2g-images'
+        },
+        'playbook': {
+            'short': 'p',
+            'help': 'Ansible playbook to run for the build process',
+        },
+    }).set_arguments()
+    if not parse_gcp_builder_args(deploy_args, args):
+        exit(1)
+    exit(0)
+
+
+def parse_remote_controller_args(args: dict):
+    if args.get('list'):
+        GCPController().display_instances(args['projectID'], args['zone'])
+    if args.get('start'):
+        return GCPController().start_instance(args['projectID'], args['zone'], args['vm'])
+    if args.get('stop'):
+        return GCPController().stop_instance(args['projectID'], args['zone'], args['vm'])
+    if args.get('reboot'):
+        return GCPController().reboot_instance(args['projectID'], args['zone'], args['vm'])
+    if args.get('delete'):
+        return GCPController().delete_instance(args['projectID'], args['zone'], args['vm'])
+    return True
+
+
+def remote_controller(parent_args: list = None):
+    args = ArgParser('KVM-2-GCP GCP Controller', parent_args, {
+        'list': {
+            'short': 'l',
+            'help': 'List instances',
+            'action': 'store_true'
+        },
+        'vm': {
+            'short': 'v',
+            'help': 'Virtual machine name',
+        },
+        'projectID': {
+            'short': 'p',
+            'help': 'GCP project ID. Default: default',
+            'default': 'default'
+        },
+        'zone': {
+            'short': 'z',
+            'help': 'GCP zone. Default: us-central1-a',
+            'default': 'us-central1-a'
+        },
+        'delete': {
+            'short': 'D',
+            'help': 'Delete instance',
+            'action': 'store_true'
+        },
+        'stop': {
+            'short': 'S',
+            'help': 'Stop instance',
+            'action': 'store_true'
+        },
+        'start': {
+            'short': 's',
+            'help': 'Start instance',
+            'action': 'store_true'
+        },
+        'reboot': {
+            'short': 'R',
+            'help': 'Reboot instance',
+            'action': 'store_true'
+        },
+    }).set_arguments()
+    if not parse_remote_controller_args(args):
         exit(1)
     exit(0)

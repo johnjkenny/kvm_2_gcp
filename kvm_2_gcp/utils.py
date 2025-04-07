@@ -282,7 +282,7 @@ class Utils():
         while max_attempts > 0:
             try:
                 with socket.create_connection((ip, port), timeout=timeout):
-                    self.display_success_msg(f'{ip}:{port} is open, running Ansible playbook')
+                    self.display_success_msg(f'{ip}:{port} is open')
                     return True
             except (socket.timeout, ConnectionRefusedError, OSError):
                 self.display_warning_msg(f'{ip}:{port} is not open. Retrying in {timeout} seconds')

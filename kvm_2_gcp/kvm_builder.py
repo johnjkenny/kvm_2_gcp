@@ -1,17 +1,17 @@
 from datetime import datetime
 from pathlib import Path
+from logging import Logger
 
 from kvm_2_gcp.kvm_deploy import KVMDeploy
 from kvm_2_gcp.kvm_images import KVMImages
 
 
 class KVMBuilder(KVMDeploy):
-    def __init__(self, name: str = 'GENERATE', image: str = '', cpu: int = 2, memory: int = 2048, playbook: str = ''):
+    def __init__(self, name: str = 'GENERATE', image: str = '', disk_size: int = 10, cpu: int = 2, memory: int = 2048,
+                 playbook: str = '', logger: Logger = None):
         name = name if name != 'GENERATE' else f'build-{datetime.now().strftime("%Y-%m-%d--%H-%M-%S")}'
-        if playbook:
-            super().__init__(name, image, cpu, memory, f'builds/{playbook}', False)
-        else:
-            super().__init__(name, image, cpu, memory, add_user=False)
+        playbook = f'builds/{playbook}' if playbook else ''
+        super().__init__(name, image, disk_size, cpu, memory, playbook, False, logger)
 
     @property
     def __build_dir(self):

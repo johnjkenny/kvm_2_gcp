@@ -30,7 +30,8 @@ class GCPImageUpload(Utils):
             "args": [
                 f"-image_name={self.__name}",
                 f"-source_file=gs://{self.__storage.bucket}/{self.__bucket_image}",
-                f'-scratch_bucket_gcs_path=gs://{self.__storage.bucket}/{self.__scratch_dir}']
+                f'-scratch_bucket_gcs_path=gs://{self.__storage.bucket}/{self.__scratch_dir}'
+            ]
         }
 
     @property
@@ -41,9 +42,10 @@ class GCPImageUpload(Utils):
                 "compute",
                 "images",
                 "update",
-                f"{self.__name}",
+                self.__name,
                 f"--family={self.__family}",
-                f"--project={self.project_id}"]
+                f"--project={self.project_id}"
+            ]
         }
 
     def __upload_file_to_bucket(self):
