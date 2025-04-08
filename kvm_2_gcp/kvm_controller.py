@@ -568,7 +568,7 @@ class KVMController(Utils):
         eth = {}
         interfaces = self.get_vm_interfaces(vm_name)
         for num, interface in interfaces.items():
-            if interface.get('name', '').startswith('eth'):
+            if interface.get('name', '').startswith(('eth', 'enp')):
                 eth[num] = interface
         return eth
 
@@ -618,6 +618,22 @@ class KVMController(Utils):
                 return interface.get('ip', '')
         return ''
 
+    def get_vm_ip_by_index(self, vm_name: str, network_index: int = 1):
+        """Get the IP address of a VM using the virsh guestinfo command. This will return the IP address of the VM
+        for the specified network index. If the IP address is not found, it will return None.
+
+        Args:
+            vm_name (str): name of the vm get the interface IP address
+            network_index (int, optional): network index to get IP address. Defaults to 1.
+
+        Returns:
+            str or None: IP address of the VM or None if not found
+        """
+        interfaces = self.get_vm_interfaces(vm_name)
+        if str(network_index) in interfaces:
+            return interfaces[str(network_index)].get('ip', '')
+        return ''
+
     def __display_vm_is_up(self, vm_name: str, ignore_error: bool = False) -> str:
         """Display the IP address of a VM using the virsh guestinfo command. This will display the IP address of the VM
         to console.
@@ -629,7 +645,7 @@ class KVMController(Utils):
         Returns:
             str: IP address of the VM or empty string if not found
         """
-        ip = self.get_vm_ip_by_interface_name(vm_name)
+        ip = self.get_vm_ip_by_index(vm_name)
         if ip:
             try:
                 ip_obj = ip_address(ip)

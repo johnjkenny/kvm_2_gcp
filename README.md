@@ -108,7 +108,7 @@ architecture, and the url for the download process.
 
 1. List Rocky Remote Images (drop `--refresh` to not update cache):
 ```bash
-# same as: k2g -ri -r -l -r
+# same as: k2g -ri -r -l -R
 k2g --remoteImages --rocky --list --refresh
 # Example output:
 [2025-03-30 17:09:24,148][INFO][remote_images,253]: Refreshing Rocky cloud image cache data
@@ -205,6 +205,80 @@ k2g --remoteImages --rocky --download Rocky-9-GenericCloud-Base-9.5-20241118.0.x
 Image Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2 exists. Overwrite? (y/n): n
 ```
 
+## Ubuntu Remote Images
+In the below example, we are pulling the latest ubuntu 24.04 image located `https://cloud-images.ubuntu.com`.
+As part of the caching process we store the sha256 checksum, family version, architecture, and the url for the
+download process. We only pull the latest image info for the ubuntu image family. The ubuntu images are very minimal
+(3GB boot disk) and require `qemu-guest-agent` to be installed as part of the cloud-init process (startup script).
+To shorten image deployments it is recommended to create a clone image after deploying the first VM to bypass the need
+to install `qemu-guest-agent` on every deployment.
+
+```bash
+# Command options:
+k2g -ri -u -h
+usage: k2g [-h] [-l] [-d DOWNLOAD] [-R] [-F]
+
+KVM-2-GCP Ubuntu Remote Images
+
+options:
+  -h, --help            show this help message and exit
+
+  -l, --list            List Images
+
+  -d DOWNLOAD, --download DOWNLOAD
+                        Download remote image
+
+  -R, --refresh         Refresh cache data
+
+  -a ARCH, --arch ARCH  Architecture to use. Default: amd64 (x86_64)
+
+  -F, --force           Force actions
+```
+
+
+1. List Ubuntu Remote Images:
+```bash
+# Remove -R to not refresh cache data
+k2g -ri -u -l -R
+[2025-04-08 17:51:10,964][INFO][remote_images,310]: Refreshing Ubuntu cloud image cache data
+[2025-04-08 17:51:11,737][INFO][remote_images,294]: Pulling Ubuntu 18.04.amd64 remote images
+[2025-04-08 17:51:12,537][INFO][remote_images,294]: Pulling Ubuntu 20.04.amd64 remote images
+[2025-04-08 17:51:13,259][INFO][remote_images,294]: Pulling Ubuntu 22.04.amd64 remote images
+[2025-04-08 17:51:14,077][INFO][remote_images,294]: Pulling Ubuntu 24.04.amd64 remote images
+[2025-04-08 17:51:14,692][INFO][remote_images,294]: Pulling Ubuntu 24.10.amd64 remote images
+Ubuntu Remote Images:
+  ubuntu-18.04-server-cloudimg-amd64.img
+  ubuntu-20.04-server-cloudimg-amd64.img
+  ubuntu-22.04-server-cloudimg-amd64.img
+  ubuntu-24.04-server-cloudimg-amd64.img
+  ubuntu-24.10-server-cloudimg-amd64.img
+```
+
+2. Download Ubuntu Remote Image:
+```bash
+k2g -ri -u -d ubuntu-24.04-server-cloudimg-amd64.img
+Downloading: 611584000 bytes downloaded
+[2025-04-08 17:57:17,017][INFO][remote_images,161]: Successfully downloaded ubuntu-24.04-server-cloudimg-amd64.img
+
+# list images:
+k2g -i -l                                           
+Images:
+  Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2
+  ubuntu-24.04-server-cloudimg-amd64.img
+```
+
+3. Snip of ubuntu cache data:
+```json
+"ubuntu-22.04-server-cloudimg-amd64.img": {
+  "name": "ubuntu-22.04-server-cloudimg-amd64.img",
+  "checksum": "989151e612cde6876b0ef9fbc8051c0e22c32c59dd51cbac2b8691fbb79c399a",
+  "url": "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img",
+  "version": "22.04",
+  "arch": "amd64"
+},
+```
+
+
 ## GCP Remote Images
 Lists the available images in GCP
 
@@ -234,7 +308,7 @@ options:
 
   -s, --show            Show public image info for project and family
 
-  -r, --refresh         Refresh cache data
+  -R, --refresh         Refresh cache data
 
   -c CLONE, --clone CLONE
                         Clone VM boot disk to image (specify VM name)
@@ -364,7 +438,7 @@ instance. If you are running the tool with root or no ssh keys generated then yo
 ansible user and its private key `/k2g/.env/ansible_id_rsa`. Your username and the ansible user will have 
 password-less sudo access.
 
-There is a basic startup script that runs on first boot and all it does is set a done flag in
+There is a basic startup script that runs on first boot and it installs `qemu-guest-agent` and sets a done marker in
 `/var/log/startup-done.marker`. The deploy process will run an ansible playbook and use the ansible user to wait and
 check for the existence of the done flag. This is to ensure the deploy process has completely finished and the init
 ISO can be ejected, deleted, and the cdrom device removed from the instance.
@@ -440,7 +514,7 @@ ssh 192.168.124.75
 [root@vm-2de60914 myUser]#
 
 # User the ansible user:
-ssh -i kvm_2_gcp//k2g/.env/.ansible_rsa ansible@192.168.124.75
+ssh -i /k2g/.env/.ansible_rsa ansible@192.168.124.75
 [ansible@vm-2de60914 ~]$ sudo su
 [root@vm-2de60914 ansible]#
 ```
