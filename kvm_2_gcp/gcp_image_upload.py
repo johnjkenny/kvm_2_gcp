@@ -17,7 +17,8 @@ class GCPImageUpload(Utils):
         super().__init__(logger=logger)
         self.project_id = project_id if project_id != 'default' else self._load_default_project_id()
         self.__image_name = image_name
-        self.__name = name if name != 'default' else Path(self.__image_name).with_suffix('')
+        self.__name = name if name != 'default' else Path(self.__image_name).with_suffix('').name
+        self.__name = self.__name.replace('.', '-').replace(' ', '-')
         self.__family = family
         self.__bucket_image = f'k2g-images/{self.__image_name}'
         self.__storage = GCPCloudStorage(bucket, service_account, logger=self.log)
@@ -95,6 +96,6 @@ class GCPImageUpload(Utils):
         return True
 
     def upload_image(self):
-        state = self.__upload_file_to_bucket() and self.__start_image_import_build()
-        self.__cleanup_bucket()
-        return state
+        if self.__upload_file_to_bucket() and self.__start_image_import_build():
+            return self.__cleanup_bucket()
+        return False

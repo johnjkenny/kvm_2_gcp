@@ -1,29 +1,51 @@
 # KVM-2-GCP
-This is a dev/qa/build/IaC/CI-CD tool for KVM and GCP
+This is a dev/qa/build/IaC/CI-CD tool for KVM and GCP. It allows you to pull remote KVM images from the cloud 
+(Rocky, Ubuntu), deploy VMs using said images locally and configures them to run ansible playbooks via cloud-init.
+It also allows you to create custom build images using ansible and then deploy them locally or in GCP or you to run the
+same build playbooks on GCP instances and create cloud images directly from the GCP VM boot disks. You can use the KVM
+aspect as a dev/qa environment then deploy your ansible build playbooks to GCP instances to help save on hosting costs.
+You can also use this tool to be run on CI/CD pipelines to build and deploy images to/on GCP.
+
+# Prerequisites
+- GCP project access with `Compute Engine API` enabled
+- Firewall tag `ssh` for SSH access (port 22) allowing 0.0.0/0 access (or your public IP address)
+- Service account with `Compute Admin` role assigned
+- Service account key downloaded in JSON format.
+- Python3.12 (tested with 3.12, but 3.10 and above should work)
+
+If you plan to push KVM images to GCP then you will also need the following requirements:
+- A bucket created in GCP
+- Service account with `Storage Admin` role assigned
+- `Cloud Build API` and  `VM Migration API` enabled
+- Same service account as above with `Cloud Build Editor` and `Service Account User` roles assigned
+
 
 # Usage
 
 Command Options:
 ```bash
 k2g -h   
-usage: k2g [-h] [-I ...] [-r ...] [-i ...] [--remoteDeploy REMOTEDEPLOY] [-d ...] [-b ...]
+usage: k2g [-h] [-I ...] [-ri ...] [-rd ...] [-rc ...] [-i ...] [-d ...] [-c ...]
 
 KVM-2-GCP Commands
 
 options:
   -h, --help            show this help message and exit
 
-  -I ..., --init ...    Initialize KVM-2-GCP environment
+  -I ..., --init ...    Initialize KVM-2-GCP environment (k2g-init)
 
   -ri ..., --remoteImages ...
                         Remote Images (k2g-remote-images)
 
   -rd ..., --remoteDeploy ...
-                        Deploy VM remotely (GCP)
+                        Deploy VM remotely in GCP (k2g-remote-deploy)
+
+  -rc ..., --remoteController ...
+                        Remote Controller (k2g-remote-controller)
 
   -i ..., --images ...  Images (k2g-images)
 
-  -d ..., --deploy ...  Deploy VM locally (KVM)
+  -d ..., --deploy ...  Deploy VM locally with KVM (k2g-deploy)
 
   -c ..., --controller ...
                         Controller (k2g-controller)
@@ -31,20 +53,21 @@ options:
 
 
 # Initialization
-
 The following will walk you through the initialization process. The initialization process will create a
 virtual environment, install the required packages, and create the necessary directories and files. It will also
 generate a private key for SSH access to the VM instance. The private key will be stored in `/k2g/.env`. It will
 stash the service account key in the `/k2g/.env` directory as well. A directory structure will be created in `/k2g`
 which will consists of the following directories:
-- images: local images to use for KVM. Can manually import, download via remote image, or build custom images (clones)
-- vms: vm instances that have been created
 
+1. ansible: ansible playbooks, tasks, builds, and client files
+2. images: local images to use for KVM. Can manually import, download via remote image, or build custom images (clones)
+3. vms: vm instances that have been created
+4. .env: environment files for the automation to reference as well as the ansible private key
 
 ```bash
 # Command options:
 k2g -I -h
-usage: k2g [-h] [-sa SERVICEACCOUNT] [-F]
+usage: k2g [-h] [-sa SERVICEACCOUNT] [-b BUCKET] [-F]
 
 KVM-2-GCP Initialization
 
@@ -71,34 +94,34 @@ pip install -e .
 
 2. Run the init command:
 ```bash
+# omit -b if you do not plan to use GCP bucket for image upload. Use --force to overwrite existing files
 k2g -I -sa /home/myUser/sa.json k2g -b myBucket123
 [2025-03-31 16:47:11,446][INFO][init,139]: Successfully initialized KVM-2-GCP Environment
 ```
 
-
 # Remote Image Management:
 This tool parses the remote repositories for image info and caches them locally to `/k2g/images/<family>_cache.json`.
 The Rocky and Ubuntu options allow you to download the images locally and use them for local KVM deployments. Further
-down the document it covers how to upload KVM images to GCP. The GCP option allows you to pull public and your private
-images so you can choose to deploy under `--remoteDeploy` option. You cannot download GCP images directly from GCP, but
-the images located in GCP can be downloaded from the family repositories (rocky ubuntu, etc).
+down the document it covers how to upload KVM images to GCP. The GCP option allows you to view public and private
+images to select for `--remoteDeploy` option. You cannot download GCP images directly from GCP, but the images located
+in GCP can be downloaded from the family repositories (rocky ubuntu, etc).
 
 
 ```bash
 # Command options:
-k2g --remoteImages -h
-usage: k2g [-h] [-r ...] [-u ...] [-g ...]
+k2g -ri -h        
+usage: k2g [-h] [--rocky ...] [--ubuntu ...] [--gcp ...]
 
 KVM-2-GCP Remote Images
 
 options:
-  -h, --help            show this help message and exit
+  -h, --help    show this help message and exit
 
-  -r ..., --rocky ...   Rocky family remote images (k2g-remote-rocky-images)
+  --rocky ...   Rocky family remote images (k2g-remote-rocky-images)
 
-  -u ..., --ubuntu ...  Ubuntu family remote images (k2g-remote-ubuntu-images)
+  --ubuntu ...  Ubuntu family remote images (k2g-remote-ubuntu-images)
 
-  -g ..., --gcp ...     GCP remote images (k2g-remote-gcp-images)
+  --gcp ...     GCP remote images (k2g-remote-gcp-images)
 ```
 
 ## Rocky Remote Images
@@ -106,9 +129,29 @@ In the below example, we are pulling the latest Rocky 9.5 images located `https:
 As part of the caching process we store the total size of the image in bytes, sha256 checksum, family version,
 architecture, and the url for the download process.
 
+```bash
+# command options:
+k2g -ri --rocky -h   
+usage: k2g [-h] [-l] [-d DOWNLOAD] [-R] [-F]
+
+KVM-2-GCP Rocky Remote Images
+
+options:
+  -h, --help            show this help message and exit
+
+  -l, --list            List Images
+
+  -d DOWNLOAD, --download DOWNLOAD
+                        Download remote image
+
+  -R, --refresh         Refresh cache data
+
+  -F, --force           Force actions
+```
+
 1. List Rocky Remote Images (drop `--refresh` to not update cache):
 ```bash
-# same as: k2g -ri -r -l -R
+# same as: k2g -ri --rocky -l -R
 k2g --remoteImages --rocky --list --refresh
 # Example output:
 [2025-03-30 17:09:24,148][INFO][remote_images,253]: Refreshing Rocky cloud image cache data
@@ -148,7 +191,6 @@ Rocky Remote Images:
 
 2. Example cache snip from `/k2g/images/rocky_cache.json`:
 ```json
-{
 "Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2": {
     "name": "Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2",
     "size": 609812480,
@@ -156,7 +198,7 @@ Rocky Remote Images:
     "url": "https://download.rockylinux.org/pub/rocky/9.5/images/x86_64/Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2",
     "version": "9.5",
     "arch": "x86_64"
-},
+}
 ```
 
 3. Download a Remote Image:
@@ -215,8 +257,8 @@ to install `qemu-guest-agent` on every deployment.
 
 ```bash
 # Command options:
-k2g -ri -u -h
-usage: k2g [-h] [-l] [-d DOWNLOAD] [-R] [-F]
+k2g -ri --ubuntu -h
+usage: k2g [-h] [-l] [-d DOWNLOAD] [-R] [-a ARCH] [-F]
 
 KVM-2-GCP Ubuntu Remote Images
 
@@ -239,7 +281,7 @@ options:
 1. List Ubuntu Remote Images:
 ```bash
 # Remove -R to not refresh cache data
-k2g -ri -u -l -R
+k2g -ri --ubuntu -l -R
 [2025-04-08 17:51:10,964][INFO][remote_images,310]: Refreshing Ubuntu cloud image cache data
 [2025-04-08 17:51:11,737][INFO][remote_images,294]: Pulling Ubuntu 18.04.amd64 remote images
 [2025-04-08 17:51:12,537][INFO][remote_images,294]: Pulling Ubuntu 20.04.amd64 remote images
@@ -256,7 +298,7 @@ Ubuntu Remote Images:
 
 2. Download Ubuntu Remote Image:
 ```bash
-k2g -ri -u -d ubuntu-24.04-server-cloudimg-amd64.img
+k2g -ri --ubuntu -d ubuntu-24.04-server-cloudimg-amd64.img
 Downloading: 611584000 bytes downloaded
 [2025-04-08 17:57:17,017][INFO][remote_images,161]: Successfully downloaded ubuntu-24.04-server-cloudimg-amd64.img
 
@@ -267,7 +309,7 @@ Images:
   ubuntu-24.04-server-cloudimg-amd64.img
 ```
 
-3. Snip of ubuntu cache data:
+3. Snip of ubuntu cache data from `/k2g/images/ubuntu_cache.json`:
 ```json
 "ubuntu-22.04-server-cloudimg-amd64.img": {
   "name": "ubuntu-22.04-server-cloudimg-amd64.img",
@@ -285,7 +327,7 @@ Lists the available images in GCP
 ```bash
 # Command options:
 k2g --remoteImages --gcp -h
-usage: k2g [-h] [-l] [-p PROJECT] [-f FAMILY] [-s]
+usage: k2g [-h] [-l] [-n NAME] [-p PROJECT] [-z ZONE] [-f FAMILY] [-F] [-s] [-R] [-c CLONE]
 
 KVM-2-GCP GCP Remote Images
 
@@ -325,15 +367,16 @@ GCP k2g-images:
 2. Display basic public image options (project and family):
 ```bash
 k2g --remoteImages --gcp --show
-Project: debian-cloud, Family: debian-12
-Project: ubuntu-os-cloud, Family: ubuntu-2404-lts-amd64
-Project: rocky-linux-cloud, Family: rocky-linux-9-optimized-gcp
-Project: cos-cloud, Family: cos-117-lts
+Project           Family
+debian-cloud      debian-12
+ubuntu-os-cloud   ubuntu-2404-lts-amd64
+rocky-linux-cloud rocky-linux-9-optimized-gcp
+cos-cloud         cos-117-lts
 ```
 
 3. Display public images:
 ```bash
-k2g -ri -g -p ubuntu-os-cloud -f ubuntu-2404-lts-amd64 -l
+k2g -ri --gcp -p ubuntu-os-cloud -f ubuntu-2404-lts-amd64 -l
 GCP ubuntu-2404-lts-amd64:
   ubuntu-2404-noble-amd64-v20240423
 ...
@@ -347,7 +390,7 @@ This next step creates an image from an already deployed VM in GCP. The VM needs
 image. If it is running you will be prompted to stop it unless you use the `--force` option.
 
 ```bash
-k2g -ri -g -c vm-43ca6cf5 
+k2g -ri --gcp -c vm-43ca6cf5 
 Instance vm-43ca6cf5 is running. Stop it? (y/n): y
 [2025-04-07 21:19:18,787][INFO][gcp_controller,172]: Stopping GCP instance vm-43ca6cf5
 Waiting for operation operation-1744060759035-63236ca024de3-54157541-6298ef6b to complete...
@@ -356,7 +399,7 @@ Waiting for operation operation-1744061704222-632370258b8cf-0009bfc8-fcdf15bc to
 Operation operation-1744061704222-632370258b8cf-0009bfc8-fcdf15bc completed successfully
 
 # list images to verify the image was created:
-k2g -ri -g -l
+k2g -ri --gcp -l
 GCP k2g-images:
   image-vm-43ca6cf5
   image-vm-c3183891
@@ -369,7 +412,7 @@ and an option to upload an image to GCP to be used in the cloud.
 ```bash
 # Command options:
 k2g -i -h
-usage: k2g [-h] [-l] [-c CLONE] [-n NAME] [-D DELETE] [-F]
+usage: k2g [-h] [-l] [-c CLONE] [-n NAME] [-D DELETE] [-ug ...] [-F]
 
 KVM-2-GCP KVM Images
 
@@ -435,7 +478,7 @@ The deploy process will add the ansible user and provide its public ssh key to t
 with a non-root user then your current user name will also be added to the instance and your ssh public key will be parsed
 from `~/.ssh/id_rsa.pub` or `~/.ssh/id_ed25519.pub`. Please ensure you have ssh keys generated before deploying an
 instance. If you are running the tool with root or no ssh keys generated then you can only access the system using the
-ansible user and its private key `/k2g/.env/ansible_id_rsa`. Your username and the ansible user will have 
+ansible user and its private key `/k2g/.env/.ansible_id_rsa`. Your username and the ansible user will have 
 password-less sudo access.
 
 There is a basic startup script that runs on first boot and it installs `qemu-guest-agent` and sets a done marker in
@@ -450,7 +493,7 @@ You will also have the ability to create custom images using the build command. 
 # Command Options:
 
 k2g --deploy -h
-usage: k2g [-h] [-n NAME] [-i IMAGE] [-c CPU] [-m MEMORY]
+usage: k2g [-h] [-n NAME] [-i IMAGE] [-s DISKSIZE] [-c CPU] [-m MEMORY] [-b ...]
 
 KVM-2-GCP KVM Deploy
 
@@ -525,15 +568,15 @@ then create a qcow2 image from the VM and store it in `/k2g/images`. On a succes
 you can then deploy VMs from your custom image. The image will have the ansible user embedded with its public key. If
 you do not intend for this to be in your custom image then please ensure you create an ansible task that will cleanup
 the ansible user and public key as part of the build process. The build playbooks are stored in
-`ansible/playbooks/builds`. The build tasks are located in `ansible/playbooks/tasks`.
+`/k2g/ansible/playbooks/builds`. The build tasks are located in `/k2g/ansible/playbooks/tasks`.
 
 The following example will deploy a build called `app1_build.yml` which installs docker on the VM and runs a
 docker-compose file that deploys three containers, nginx, php, and mysql.
 
 ```bash
 # build command options:
-k2g -d -b -h                                                                        
-usage: k2g [-h] [-l] [-p PLAYBOOK] [-P]
+k2g -d -b -h  
+usage: k2g [-h] [-l] [-p PLAYBOOK]
 
 KVM-2-GCP KVM Builder
 
@@ -669,10 +712,9 @@ info, add or remove network interfaces, list disks and add or remove data disks 
 handling is basic and only uses one host interface, `virbr0`. Adding interfaces to VMs will add another interface
 from this bridge only and auto assign IP from the `/24` subnet.
 
-
 ```bash
-k2g --controller -h
-usage: k2g [-h] [-v VM] [-D] [-l] [-R] [-RH] [-RS] [-s] [-S] [-n ...]
+k2g --controller -h   
+usage: k2g [-h] [-v VM] [-D] [-F] [-l] [-R] [-RH] [-RS] [-s] [-S] [-n ...] [-d ...] [-H ...]
 
 KVM-2-GCP KVM Controller
 
@@ -702,8 +744,8 @@ options:
 
   -d ..., --disks ...   Virtual machine disk handling
 
-  -r ..., --resources ...
-                        Virtual machine resource handling
+  -H ..., --hardware ...
+                        Virtual machine hardware resource handling
 ```
 
 1. List VMs:
@@ -794,20 +836,20 @@ VMs:
 ## VM Network Interface Handling
 ```bash
 # Command options:
-k2g -c -v vm-d9a7792d -n -h                  
-usage: k2g [-h] [-l] [-a] [-r REMOVE]
+k2g -c -n -h
+usage: k2g [-h] [-l] [-a] [-R REMOVE]
 
 KVM-2-GCP KVM Network
 
 options:
   -h, --help            show this help message and exit
 
-  -l, --list            List VM network interfaces
+  -l, --list            List virtual machine network interfaces
 
-  -a, --add             Add network interface to VM
+  -a, --add             Add network interface to virtual machine
 
-  -r REMOVE, --remove REMOVE
-                        Remove network interface from VM (specify MAC address)
+  -R REMOVE, --remove REMOVE
+                        Remove network interface from virtual machine (specify MAC address)
 
 ```
 
@@ -886,7 +928,7 @@ k2g -c -v vm-d9a7792d -n -a
 3. Remove a network interface:
 ```bash
 # Powered off:
-k2g -c -v vm-d9a7792d -n -r 52:54:00:e9:66:5e
+k2g -c -v vm-d9a7792d -n -R 52:54:00:e9:66:5e
 [2025-04-01 18:33:21,882][INFO][kvm_controller,633]: Successfully removed network interface from vm-d9a7792d
 {
   "1": {
@@ -902,7 +944,7 @@ k2g -c -v vm-d9a7792d -n -r 52:54:00:e9:66:5e
 }
 
 # Powered on (no delay):
-k2g -c -v vm-d9a7792d -n -r 52:54:00:c3:bd:6f
+k2g -c -v vm-d9a7792d -n -R 52:54:00:c3:bd:6f
 [2025-04-01 18:34:02,072][INFO][kvm_controller,633]: Successfully removed network interface from vm-d9a7792d
 {
   "1": {
@@ -926,9 +968,9 @@ the OS the information might seem misleading.
 
 ```bash
 # Command options:
-k2g -c -v vm-d9a7792d -d -h
-usage: k2g [-h] [-l] [-a] [-R REMOVE] [-n NAME] [-m MOUNTPOINT] [-u UNMOUNT] [-r REMOUNT]
-           [-f FILESYSTEM] [-F] [-s SIZE]
+k2g -c -d -h
+usage: k2g [-h] [-l] [-a] [-R REMOVE] [-n NAME] [-m MOUNTPOINT] [-u UNMOUNT] [-rm REMOUNT]
+           [-f FILESYSTEM] [-F] [-s SIZE] [-i INCREASEDISK]
 
 KVM-2-GCP KVM Disks
 
@@ -950,7 +992,7 @@ options:
   -u UNMOUNT, --unmount UNMOUNT
                         Unmount a disk device (specify device target e.g. sdb)
 
-  -r REMOUNT, --remount REMOUNT
+  -rm REMOUNT, --remount REMOUNT
                         Remount a disk device (specify device target e.g. sdb)
 
   -f FILESYSTEM, --filesystem FILESYSTEM
@@ -1145,7 +1187,7 @@ Delete disk /k2g/vms/vm-05b3351b/data-xfs1.qcow2 from vm-05b3351b? [y/n]: y
 ```
 
 4. Umount/Remount a disk:
-You can unmount a disk using the `-u` option and you can remount a disk using the `-r` option. When remounting, you can
+You can unmount a disk using the `-u` option and you can remount a disk using the `-rm` option. When remounting, you can
 select a new mount point using the `-m` option.
 
 ```bash
@@ -1181,7 +1223,7 @@ vm-c3183891                : ok=7    changed=2    unreachable=0    failed=0    s
 
 
 # remount:
-k2g -c -v vm-c3183891 -d -r sdb -m /mnt/newMount
+k2g -c -v vm-c3183891 -d -rm sdb -m /mnt/newMount
 
 PLAY [Mount disk] **************************************************************
 
@@ -1219,10 +1261,9 @@ of the specified disk by the specified size. After the resize the VM will be pow
 using `growpart`. Then it will be determined what filesystem is running and resize the filesystem using the appropriate
 command, `resize2fs` for `ext4` and `xfs_growfs` for `xfs`.
 
-
 ```bash
 # ext4 filesystem with prompt to power off:
-k2g -c -v vm-c3183891 -d -i sdb -s 50M          
+k2g -c -v vm-c3183891 -d -i sdb -s 50M
 VM vm-c3183891 is running. Shutdown? [y/n]: y
 [2025-04-02 19:20:06,197][INFO][kvm_controller,260]: Shutting down VM vm-c3183891
 Waiting for VM vm-c3183891 to shutdown. 1/60 seconds
@@ -1344,15 +1385,15 @@ k2g -c -v vm-c3183891 -d -l
 }
 ```
 
-## VM Resource Handling
+## VM Hardware Handling
 The resource command allows you to list and change VM CPU and memory assigned resources.
 
 ```bash
 # command options:
-k2g -c -r -h
-usage: k2g [-h] [-l] [-c CPU] [-m MEMORY] [-F FORCE]
+k2g -c -H -h               
+usage: k2g [-h] [-l] [-c CPU] [-m MEMORY] [-F]
 
-KVM-2-GCP KVM Resource Manager
+KVM-2-GCP KVM Hardware Manager
 
 options:
   -h, --help            show this help message and exit
@@ -1364,13 +1405,12 @@ options:
   -m MEMORY, --memory MEMORY
                         Set memory size in MB
 
-  -F FORCE, --force FORCE
-                        Force action
+  -F, --force           Force action
 ```
 
 1. List resources:
 ```bash
-k2g -c -v vm-7e84bd43 -r -l
+k2g -c -v vm-7e84bd43 -H -l
 {
   "memory_bytes": 2147483648,
   "memory": "2 GiB",
@@ -1381,7 +1421,7 @@ k2g -c -v vm-7e84bd43 -r -l
 2. Change resources:
 ```bash
 # Use the --force option to skip confirmation prompt:
-k2g -c -v vm-7e84bd43 -r -c 4 -m 4096
+k2g -c -v vm-7e84bd43 -H -c 4 -m 4096
 VM vm-7e84bd43 is running. Shutdown? [y/n]: y
 [2025-04-03 19:16:45,595][INFO][kvm_controller,260]: Shutting down VM vm-7e84bd43
 Waiting for VM vm-7e84bd43 to shutdown. 3/60 seconds
@@ -1395,7 +1435,7 @@ Waiting for VM vm-7e84bd43 to initialize. 10/120 seconds
 VM vm-7e84bd43 is up. IP: 192.168.124.160
 
 # relist resources:
-k2g -c -v vm-7e84bd43 -r -l             
+k2g -c -v vm-7e84bd43 -H -l             
 {
   "memory_bytes": 4294967296,
   "memory": "4 GiB",
@@ -1453,7 +1493,7 @@ Build 8e024e99-aab4-4cab-82bf-7885e3adc90d is running...
 [2025-04-04 19:47:13,363][INFO][cloud_storage,436]: Successfully deleted object k2g-images/image-vm-c3183891.qcow2
 [2025-04-04 19:47:13,773][INFO][cloud_storage,441]: Successfully deleted object k2g-tmp/2025-04-04--12-30-41/
 
-# Use the --remoteImages (-r) options to list the images in GCP:
+# Use the --remoteImages (-ri) options to list the images in GCP:
 k2g --remoteImages --gcp --list
 GCP k2g-images:
   image-vm-c3183891
@@ -1572,8 +1612,6 @@ Operation operation-1744064279129-632379bd2ac99-88e557e8-40f81680 completed succ
 Instance build-2025-04-07--15-17-57 created with external IP: 32.172.51.98
 Waiting for 32.172.51.98:22 to be open
 32.172.51.98:22 is not open. Retrying in 5 seconds
-32.172.51.98:22 is not open. Retrying in 5 seconds
-32.172.51.98:22 is not open. Retrying in 5 seconds
 32.172.51.98:22 is open
 
 PLAY [Build App1] **************************************************************
@@ -1593,9 +1631,6 @@ TASK [Install dependencies (YUM/DNF)] ******************************************
 changed: [build-2025-04-07--15-17-57]
 
 TASK [Set up Docker repo on RedHat-family systems] *****************************
-[WARNING]: Module remote_tmp /root/.ansible/tmp did not exist and was created
-with a mode of 0700, this may cause issues when running as another user. To
-avoid this, create the remote_tmp dir with the correct permissions manually
 changed: [build-2025-04-07--15-17-57]
 
 TASK [Install Docker CE] *******************************************************
@@ -1648,12 +1683,44 @@ Operation operation-1744064739069-63237b73ccec6-1c85c482-6ea17d0c completed succ
 
 
 # List images:
-k2g -ri -g -l
+k2g -ri --gcp -l
 GCP k2g-images:
   image-vm-c3183891
   build-2025-04-07--15-17-57
-```
 
+# Deploy custom image:
+k2g -rd -i build-2025-04-08--14-23-43 -s 20                      
+Waiting for operation operation-1744147987755-6324b193ef183-dfd56781-7173bfd7 to complete...
+Operation operation-1744147987755-6324b193ef183-dfd56781-7173bfd7 completed successfully
+Instance vm-2ec7bd58 created with external IP: 37.168.69.235
+Waiting for 37.168.69.235:22 to be open
+37.168.69.235:22 is not open. Retrying in 5 seconds
+37.168.69.235:22 is not open. Retrying in 5 seconds
+37.168.69.235:22 is open
+
+PLAY [Wait for startup-done.marker on target VM] *******************************
+
+TASK [Wait for startup script marker file] *************************************
+ok: [vm-2ec7bd58]
+
+TASK [Success marker found] ****************************************************
+ok: [vm-2ec7bd58] => {
+    "msg": "Startup completed — marker file detected."
+}
+
+PLAY RECAP *********************************************************************
+vm-2ec7bd58                : ok=2    changed=0    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0   
+Successfully deployed VM vm-2ec7bd58 IP: 37.168.69.235 User Access: ansible, myUser
+
+# check system:
+ssh 37.168.69.235
+[myUser@vm-2ec7bd58 ~]$ sudo su
+[root@vm-2ec7bd58 ~]# docker ps 
+CONTAINER ID   IMAGE      COMMAND                  CREATED         STATUS          PORTS                                 NAMES
+4f358c1c3324   app1_web   "/docker-entrypoint.…"   6 minutes ago   Up 27 seconds   0.0.0.0:80->80/tcp, [::]:80->80/tcp   app1-app1_web-1
+1be47bd5a4b5   app1_php   "docker-php-entrypoi…"   6 minutes ago   Up 27 seconds   9000/tcp                              app1-app1_php-1
+f4eca0f1c5c0   app1_db    "/custom-entrypoint.…"   6 minutes ago   Up 27 seconds   3306/tcp, 33060/tcp                   app1-app1_db-1
+```
 
 # Remote Controller (GCP)
 
@@ -1750,7 +1817,6 @@ k2g -rc -l
 
 
 5. Delete VM:
-
 ```bash
 k2g -rc -D -v vm-36048250
 [2025-04-07 20:29:25,033][INFO][gcp_controller,133]: Deleting GCP instance vm-36048250

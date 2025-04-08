@@ -19,7 +19,7 @@ class GCPCloudStorage(Utils):
             service_account (str, optional): service account to use. Defaults to 'default' and will pull default SA.
             set_used_bucket (bool, optional): option to add bucket to used bucket tracker. Defaults to True.
         """
-        super().__init__(service_account, logger=self.log)
+        super().__init__(service_account, logger=logger)
         self.__bucket = bucket
         self.__client: storage.Client | None = None
         if set_used_bucket and bucket != 'default':
