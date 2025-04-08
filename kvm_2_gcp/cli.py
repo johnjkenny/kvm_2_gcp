@@ -115,17 +115,14 @@ def parse_remote_image_args(args: dict):
 def remote_images(parent_args: list = None):
     args = ArgParser('KVM-2-GCP Remote Images', parent_args, {
         'rocky': {
-            'short': 'r',
             'help': 'Rocky family remote images (k2g-remote-rocky-images)',
             'nargs': REMAINDER
         },
         'ubuntu': {
-            'short': 'u',
             'help': 'Ubuntu family remote images (k2g-remote-ubuntu-images)',
             'nargs': REMAINDER
         },
         'gcp': {
-            'short': 'g',
             'help': 'GCP remote images (k2g-remote-gcp-images)',
             'nargs': REMAINDER
         },
@@ -430,8 +427,8 @@ def parse_controller_args(args: dict):
         return KVMController().list_vms()
     if args.get('networks'):
         return network(args.get('vm', ''), args['networks'])
-    if args.get('resources'):
-        return resources(args['vm'], args['resources'])
+    if args.get('hardware'):
+        return hardware(args['vm'], args['hardware'])
     if args.get('disks'):
         return disks(args.get('vm', ''), args['disks'])
     if not args.get('vm'):
@@ -507,9 +504,9 @@ def controller(parent_args: list = None):
             'help': 'Virtual machine disk handling',
             'nargs': REMAINDER
         },
-        'resources': {
-            'short': 'r',
-            'help': 'Virtual machine resource handling',
+        'hardware': {
+            'short': 'H',
+            'help': 'Virtual machine hardware resource handling',
             'nargs': REMAINDER
         }
     }).set_arguments()
@@ -543,7 +540,7 @@ def network(vm_name: str, parent_args: list = None):
             'action': 'store_true'
         },
         'remove': {
-            'short': 'r',
+            'short': 'R',
             'help': 'Remove network interface from virtual machine (specify MAC address)',
         }
     }).set_arguments()
@@ -602,7 +599,7 @@ def disks(vm_name: str, parent_args: list = None):
             'help': 'Unmount a disk device (specify device target e.g. sdb)',
         },
         'remount': {
-            'short': 'r',
+            'short': 'rm',
             'help': 'Remount a disk device (specify device target e.g. sdb)',
         },
         'filesystem': {
@@ -630,7 +627,7 @@ def disks(vm_name: str, parent_args: list = None):
     exit(0)
 
 
-def parse_resource_args(vm_name: str, args: dict):
+def parse_hardware_args(vm_name: str, args: dict):
     if not vm_name:
         return KVMController().display_fail_msg('VM name not specified. Please specify a VM name.')
     if args.get('list'):
@@ -640,8 +637,8 @@ def parse_resource_args(vm_name: str, args: dict):
     return True
 
 
-def resources(vm_name: str, parent_args: list = None):
-    args = ArgParser('KVM-2-GCP KVM Resource Manager', parent_args, {
+def hardware(vm_name: str, parent_args: list = None):
+    args = ArgParser('KVM-2-GCP KVM Hardware Manager', parent_args, {
         'list': {
             'short': 'l',
             'help': 'List virtual machine resources',
@@ -663,7 +660,7 @@ def resources(vm_name: str, parent_args: list = None):
             'action': 'store_true'
         }
     }).set_arguments()
-    if not parse_resource_args(vm_name, args):
+    if not parse_hardware_args(vm_name, args):
         exit(1)
     exit(0)
 

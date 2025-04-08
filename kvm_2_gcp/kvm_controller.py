@@ -529,7 +529,7 @@ class KVMController(Utils):
                 if vm_name in vms.get('running', []):
                     device_name = disk_name.split('/')[-1].split('.')[0]
                     mount = mount if mount != 'default' else f'/mnt/{device_name}'
-                    ip = self.get_vm_ip_by_interface_name(vm_name)
+                    ip = self.get_vm_ip_by_index(vm_name)
                     if ip:
                         data = {'device_name': device_name, 'filesystem': filesystem, 'mount': mount}
                         if self.run_ansible_playbook(ip, vm_name, 'format_and_mount_data_disk.yml', data):
@@ -749,7 +749,7 @@ class KVMController(Utils):
         return self.display_info_msg(json.dumps(self.get_vm_disks(vm_name), indent=2))
 
     def __unmount_system_disk(self, vm_name: str, device: str, disks: dict):
-        ip = self.get_vm_ip_by_interface_name(vm_name)
+        ip = self.get_vm_ip_by_index(vm_name)
         if ip:
             device_name = f'{vm_name}-{disks[device]["location"].split("/")[-1].split(".")[0]}-part1'
             if self.run_ansible_playbook(ip, vm_name, 'unmount_disk.yml', {'device_name': device_name}):
@@ -774,7 +774,7 @@ class KVMController(Utils):
         return False
 
     def __mount_system_disk(self, vm_name: str, device_name: str, mount: str):
-        ip = self.get_vm_ip_by_interface_name(vm_name)
+        ip = self.get_vm_ip_by_index(vm_name)
         if ip:
             if self.run_ansible_playbook(ip, vm_name, 'mount_disk.yml', {'device_name': device_name, 'mount': mount}):
                 self.log.info(f'Successfully mounted {device_name} on {vm_name}')
