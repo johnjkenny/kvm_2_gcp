@@ -115,7 +115,7 @@ class Color:
             return f'{self.esc}{self.colors[ground][color]}'
         except KeyError:
             print(f'Failed to get color format using keys: {ground}, {color}')
-        ''
+        return ''
 
     def print_message(self, msg: str, color: str, ground: str = 'foreground', _format: str = 'default'):
         """Print formatted message
