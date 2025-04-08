@@ -1,5 +1,4 @@
 from logging import Logger
-from pathlib import Path
 from hashlib import sha256
 
 from cryptography.fernet import Fernet
@@ -32,7 +31,7 @@ class Cipher:
         Returns:
             str: file path to cipher key
         """
-        return f'{Path(__file__).parent}/k2g_env/keys/.xork'
+        return '/k2g/.env/.xork'
 
     def _create_key(self) -> bool:
         """Generate a cipher key for encryption/decryption

@@ -75,7 +75,7 @@ def k2g_parent():
 def parse_init_args(args: dict):
     from kvm_2_gcp.init import Init
     if args.get('serviceAccount'):
-        return Init(args['serviceAccount'], args['force']).run()
+        return Init(args['serviceAccount'], args['bucket'], args['force']).run()
     return True
 
 
@@ -85,6 +85,11 @@ def init(parent_args: list = None):
             'short': 'sa',
             'help': 'Service account path (full path to json file)',
             'required': False,
+        },
+        'bucket': {
+            'short': 'b',
+            'help': 'Default bucket name to use for image upload',
+            'default': ''
         },
         'force': {
             'short': 'F',

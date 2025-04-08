@@ -94,7 +94,6 @@ class KVMDeploy(Utils):
             return False
         try:
             Path(f'{self.__deploy_dir}/iso').mkdir(parents=True)
-            Path(f'{self.__deploy_dir}/ansible').mkdir()
             return True
         except Exception:
             self.log.exception(f'Failed to create VM directory {self.__deploy_dir}')

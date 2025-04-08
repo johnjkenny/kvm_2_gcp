@@ -38,20 +38,16 @@ class Utils():
         return '/k2g/vms'
 
     @property
-    def snapshot_dir(self):
-        return '/k2g/snapshots'
-
-    @property
-    def config_dir(self):
-        return '/k2g/config'
-
-    @property
     def template_dir(self):
         return f'{Path(__file__).parent}/templates'
 
     @property
+    def env_dir(self):
+        return '/k2g/.env'
+
+    @property
     def ansible_private_key(self):
-        return f'{Path(__file__).parent}/k2g_env/keys/.ansible_rsa'
+        return f'{self.env_dir}/.ansible_rsa'
 
     @property
     def ansible_public_key(self):
@@ -64,7 +60,15 @@ class Utils():
         Returns:
             str: Path to the Ansible directory
         """
-        return f'{Path(__file__).parent}/ansible'
+        return '/k2g/ansible'
+
+    @property
+    def ansible_clients(self):
+        return f'{self.ansible_dir}/clients'
+
+    @property
+    def ansible_playbooks(self):
+        return f'{self.ansible_dir}/playbooks'
 
     @property
     def ansible_env_vars(self) -> dict:
@@ -80,13 +84,31 @@ class Utils():
         }
 
     @property
+    def default_bucket(self) -> str:
+        """Default bucket file path
+
+        Returns:
+            str: default bucket file path
+        """
+        return f'{self.env_dir}/.default_bucket'
+
+    @property
+    def used_buckets_file(self) -> str:
+        """Get the used buckets file path
+
+        Returns:
+            str: used buckets file path
+        """
+        return f'{self.env_dir}/.used_buckets'
+
+    @property
     def default_sa(self) -> str:
         """Get the default service account file path
 
         Returns:
             str: default service account file path
         """
-        return f'{Path(__file__).parent}/k2g_env/default_sa'
+        return f'{self.env_dir}/.default_sa'
 
     @property
     def default_project_id(self) -> str:
@@ -95,7 +117,7 @@ class Utils():
         Returns:
             str: default project ID
         """
-        return f'{Path(__file__).parent}/k2g_env/default_project_id'
+        return f'{self.env_dir}/.default_project_id'
 
     @property
     def sa_file(self) -> str:
@@ -106,7 +128,7 @@ class Utils():
         """
         if self.service_account == 'default':
             self.service_account = self.__get_default_service_account()
-        return f'{Path(__file__).parent}/k2g_env/keys/.{self.service_account}.sa'
+        return f'{self.env_dir}/.{self.service_account}.sa'
 
     @property
     def creds(self) -> service_account.Credentials | None:
@@ -265,6 +287,24 @@ class Utils():
             self.log.exception('Failed to create client directory')
             return False
 
+    def _delete_ansible_client_directory(self, client_name: str) -> bool:
+        """Delete the Ansible client directory
+
+        Args:
+            client_name (str): name of the client
+
+        Returns:
+            bool: True on success, False otherwise
+        """
+        try:
+            client_dir = Path(f'{self.ansible_clients}/{client_name}')
+            if client_dir.exists():
+                self._run_cmd(f'rm -rf {client_dir}')
+            return True
+        except Exception:
+            self.log.exception('Failed to delete client directory')
+        return False
+
     def is_port_open(self, ip: str, port: int = 22, timeout: int = 5, max_attempts: int = 12) -> bool:
         """Check if a port is open on a given IP address. Will check for 1 minute before giving up with the default
         timeout and max attempts set.
@@ -293,7 +333,7 @@ class Utils():
         return False
 
     def run_ansible_playbook(self, ip: str, name: str, playbook: str, extravars: dict = None) -> bool:
-        """Run the Ansible playbook to configure the VM. This will configure the VM with Docker and deploy app1
+        """Run the Ansible playbook to configure the VM.
 
         Args:
             ip (str): IP address of the VM
@@ -302,11 +342,11 @@ class Utils():
         Returns:
             bool: True on success, False otherwise
         """
-        client_dir = Path(f'{self.ansible_dir}/clients/{name}')
+        client_dir = Path(f'{self.ansible_clients}/{name}')
         self.__create_ansible_client_directory(client_dir, name, ip)
         result = ansible_runner.run(
             private_data_dir=client_dir.absolute(),
-            playbook=f'{self.ansible_dir}/playbooks/{playbook}',
+            playbook=f'{self.ansible_playbooks}/{playbook}',
             inventory=f'{client_dir}/inventory.ini',
             artifact_dir=f'{client_dir}/artifacts',
             envvars=self.ansible_env_vars,

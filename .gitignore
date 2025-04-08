@@ -173,18 +173,6 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-
-kvm_2_gcp/k2g_env/keys/*
-!kvm_2_gcp/k2g_env/keys/__init__.py
-
-kvm_2_gcp/ansible/clients/*
-!kvm_2_gcp/ansible/clients/*__init__.py
-
-kvm_2_gcp/k2g_env/.used_buckets
-kvm_2_gcp/k2g_env/default_bucket
-kvm_2_gcp/k2g_env/default_sa
-kvm_2_gcp/k2g_env/default_project_id
-
 .ansible/
 
 notes.txt
