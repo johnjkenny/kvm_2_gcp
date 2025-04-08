@@ -53,7 +53,7 @@ class KVMController(Utils):
         dir_name = Path(f'{self.vm_dir}/{vm_name}')
         if dir_name.exists():
             self.log.info(f'Deleting VM directory {dir_name}')
-            return self._run_cmd(f'rm -rf {dir_name}')[1]
+            return self._run_cmd(f'rm -rf {dir_name}')[1] and self._delete_ansible_client_directory(vm_name)
         return True
 
     def __get_vm_state(self, vm_name: str) -> str:

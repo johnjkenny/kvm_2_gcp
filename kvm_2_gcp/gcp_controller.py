@@ -181,8 +181,8 @@ class GCPController(Utils):
             try:
                 self.log.info(f'Deleting GCP instance {name}')
                 operation = self.client.delete(project=project_id, zone=zone, instance=name)
-                if operation:
-                    return self._wait_for_zone_operation(operation, zone)
+                if operation and self._wait_for_zone_operation(operation, zone):
+                    return self._delete_ansible_client_directory(name)
             except BadRequest as error:
                 self.log.error(f'Failed to delete GCP instance: {error.message}')
             except Exception:

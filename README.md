@@ -34,8 +34,8 @@ options:
 
 The following will walk you through the initialization process. The initialization process will create a
 virtual environment, install the required packages, and create the necessary directories and files. It will also
-generate a private key for SSH access to the VM instance. The private key will be stored in `k2g_env/keys`. It will
-stash the service account key in the `k2g_env/keys` directory as well. A directory structure will be created in `/k2g`
+generate a private key for SSH access to the VM instance. The private key will be stored in `/k2g/.env`. It will
+stash the service account key in the `/k2g/.env` directory as well. A directory structure will be created in `/k2g`
 which will consists of the following directories:
 - images: local images to use for KVM. Can manually import, download via remote image, or build custom images (clones)
 - vms: vm instances that have been created
@@ -54,6 +54,9 @@ options:
   -sa SERVICEACCOUNT, --serviceAccount SERVICEACCOUNT
                         Service account path (full path to json file)
 
+  -b BUCKET, --bucket BUCKET
+                        Default bucket name to use for image upload
+
   -F, --force           Force action
 ```
 
@@ -68,7 +71,7 @@ pip install -e .
 
 2. Run the init command:
 ```bash
-k2g -I -sa /home/myUser/sa.json
+k2g -I -sa /home/myUser/sa.json k2g -b myBucket123
 [2025-03-31 16:47:11,446][INFO][init,139]: Successfully initialized KVM-2-GCP Environment
 ```
 
@@ -358,7 +361,7 @@ The deploy process will add the ansible user and provide its public ssh key to t
 with a non-root user then your current user name will also be added to the instance and your ssh public key will be parsed
 from `~/.ssh/id_rsa.pub` or `~/.ssh/id_ed25519.pub`. Please ensure you have ssh keys generated before deploying an
 instance. If you are running the tool with root or no ssh keys generated then you can only access the system using the
-ansible user and its private key `k2g_env/keys/ansible_id_rsa`. Your username and the ansible user will have 
+ansible user and its private key `/k2g/.env/ansible_id_rsa`. Your username and the ansible user will have 
 password-less sudo access.
 
 There is a basic startup script that runs on first boot and all it does is set a done flag in
@@ -437,7 +440,7 @@ ssh 192.168.124.75
 [root@vm-2de60914 myUser]#
 
 # User the ansible user:
-ssh -i kvm_2_gcp/k2g_env/keys/.ansible_rsa ansible@192.168.124.75
+ssh -i kvm_2_gcp//k2g/.env/.ansible_rsa ansible@192.168.124.75
 [ansible@vm-2de60914 ~]$ sudo su
 [root@vm-2de60914 ansible]#
 ```
