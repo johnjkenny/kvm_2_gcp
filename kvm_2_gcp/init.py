@@ -28,6 +28,11 @@ class Init(Utils):
         self.__group = ''
 
     def __install_kvm_dependencies(self) -> bool:
+        """Install the KVM dependencies for the system
+
+        Returns:
+            bool: True if the dependencies were installed successfully, False otherwise
+        """
         os_id = freedesktop_os_release().get('ID_LIKE').lower()
         if 'debian' in os_id:
             self.__group = 'kvm'
@@ -46,9 +51,20 @@ class Init(Utils):
         return False
 
     def __start_and_enable_libvirt(self) -> bool:
+        """Start and enable the libvirt service
+
+        Returns:
+            bool: True if the service was started and enabled successfully, False otherwise
+        """
         return self._run_cmd('sudo systemctl enable --now libvirtd')[1]
 
     def __set_directory_permissions(self) -> bool:
+        """Set the permissions for the /k2g directory and its subdirectories. Sets ownership to the current user running
+        the init process. Recommended to run as non-root user.
+
+        Returns:
+            bool: True if the permissions were set successfully, False otherwise
+        """
         user = getpass.getuser()
         if not self._run_cmd('sudo mkdir -p /k2g')[1]:
             return False
@@ -59,12 +75,22 @@ class Init(Utils):
         return self.__set_user_to_libvirt_group(user) and self.__set_directory_structure()
 
     def __set_user_to_libvirt_group(self, user: str) -> bool:
-        for cmd in [f'usermod -aG libvirt {user}']:
-            if not self._run_cmd(f'sudo {cmd}')[1]:
-                return False
-        return True
+        """Set the deploy user to the libvirt group
+
+        Args:
+            user (str): the user to add to the libvirt group
+
+        Returns:
+            bool: True if the user was added successfully, False otherwise
+        """
+        return self._run_cmd(f'sudo usermod -aG libvirt {user}')[1]
 
     def __set_directory_structure(self) -> bool:
+        """Create the directory structure for the KVM-2-GCP environment
+
+        Returns:
+            bool: True if the directory structure was created successfully, False otherwise
+        """
         for _dir in [self.image_dir, self.vm_dir, self.ansible_clients, self.ansible_playbooks, self.env_dir]:
             if not self._run_cmd(f'mkdir -p {_dir}')[1]:
                 return False
@@ -153,7 +179,7 @@ class Init(Utils):
                 return False
         return True
 
-    def __create_ansible_files(self):
+    def __create_ansible_files(self) -> bool:
         """Create the Ansible files
 
         Returns:
@@ -183,7 +209,7 @@ class Init(Utils):
         return False
 
     def run(self) -> bool:
-        """Run the initialization process for GCP IaC
+        """Run the initialization process for KVM-2-GCP
 
         Returns:
             bool: True on success, False otherwise

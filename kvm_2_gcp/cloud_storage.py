@@ -1,10 +1,8 @@
 import json
-import pickle
 from logging import Logger
 
 from google.cloud import storage
 from google.api_core.exceptions import NotFound
-from google.oauth2 import service_account
 
 from kvm_2_gcp.utils import Utils
 
@@ -18,6 +16,7 @@ class GCPCloudStorage(Utils):
             bucket (str, optional): bucket name to use. Defaults to 'default' and will pull the default bucket name.
             service_account (str, optional): service account to use. Defaults to 'default' and will pull default SA.
             set_used_bucket (bool, optional): option to add bucket to used bucket tracker. Defaults to True.
+            logger (Logger, optional): logger object. Defaults to None.
         """
         super().__init__(service_account, logger=logger)
         self.__bucket = bucket
@@ -37,21 +36,6 @@ class GCPCloudStorage(Utils):
         return self.__bucket
 
     @property
-    def creds(self) -> service_account.Credentials | None:
-        """Get the service account credentials object
-
-        Returns:
-            service_account.Credentials | None: service account credentials object or None on failure
-        """
-        try:
-            with open(self.sa_file, 'rb') as file:
-                __creds: dict = pickle.loads(self.cipher.decrypt(file.read(), self.cipher.load_key()))
-            return service_account.Credentials.from_service_account_info(__creds)
-        except Exception:
-            self.log.exception('Failed to load credentials')
-        return None
-
-    @property
     def client(self) -> storage.Client | None:
         """Get the storage manager client object
 
@@ -65,19 +49,6 @@ class GCPCloudStorage(Utils):
                 self.log.exception('Failed to load cloud storage client')
         return self.__client
 
-    def __get_default_service_account(self) -> str:
-        """Get the default service account name
-
-        Returns:
-            str: default service account name or empty string if failed
-        """
-        try:
-            with open(self.default_sa, 'r') as file:
-                return file.read().strip()
-        except Exception:
-            self.log.exception('Failed to load default service account')
-        return ''
-
     def __get_default_bucket(self) -> str:
         """Get the default bucket name
 
@@ -90,30 +61,6 @@ class GCPCloudStorage(Utils):
         except Exception:
             self.log.exception('Failed to load default service account')
         return ''
-
-    def upload_from_file(self, file_path: str, bucket_path: str,
-                         content_type: str = 'application/octet-stream') -> bool:
-        """Upload file to bucket from file path
-
-        Args:
-            file_path (str): file path to upload
-            bucket_path (str): the path to save the file in the bucket
-            content_type (str, optional): the content type tag. Defaults to 'application/octet-stream'.
-
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        blob = self.get_blob(bucket_path)
-        if blob:
-            try:
-                blob.upload_from_filename(file_path, content_type=content_type)
-                self.log.info(f'Successfully uploaded file {file_path} to {bucket_path}')
-                return True
-            except Exception:
-                self.log.exception(f'Failed to upload file to {bucket_path}')
-        else:
-            self.log.error(f'Failed to upload file {file_path} to {bucket_path}')
-        return False
 
     def __download_object_to_file(self, bucket_path: str, destination_path: str) -> bool:
         """Download file from bucket and save to destination path
@@ -150,40 +97,6 @@ class GCPCloudStorage(Utils):
             self.log.exception('Failed to get used buckets')
         return []
 
-    def _load_json_service_account(self, sa_path: str) -> dict:
-        """Load a service account json file to a dictionary
-
-        Args:
-            sa_path (str): path to the service account json file
-
-        Returns:
-            dict: service account data
-        """
-        try:
-            with open(sa_path, 'r') as sa_file:
-                return json.load(sa_file)
-        except Exception:
-            self.log.exception('Failed to create credentials file')
-        return {}
-
-    def _create_service_account_file(self, sa_file: str, sa_data: dict) -> bool:
-        """Create a service account file and encrypt it with the cipher key.
-
-        Args:
-            sa_file (str): path to the service account file
-            sa_data (dict): service account data
-
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        try:
-            with open(sa_file, 'wb') as file:
-                file.write(self.cipher.encrypt(pickle.dumps(sa_data), self.cipher.load_key()))
-            return True
-        except Exception:
-            self.log.exception('Failed to create service account file')
-        return False
-
     def _add_bucket_to_used_buckets(self, bucket_name: str) -> bool:
         """Add a bucket to the used buckets tracker if not already added
 
@@ -202,6 +115,30 @@ class GCPCloudStorage(Utils):
             return True
         except Exception:
             self.log.exception('Failed to add bucket to used buckets')
+        return False
+
+    def upload_from_file(self, file_path: str, bucket_path: str,
+                         content_type: str = 'application/octet-stream') -> bool:
+        """Upload file to bucket from file path
+
+        Args:
+            file_path (str): file path to upload
+            bucket_path (str): the path to save the file in the bucket
+            content_type (str, optional): the content type tag. Defaults to 'application/octet-stream'.
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        blob = self.get_blob(bucket_path)
+        if blob:
+            try:
+                blob.upload_from_filename(file_path, content_type=content_type)
+                self.log.info(f'Successfully uploaded file {file_path} to {bucket_path}')
+                return True
+            except Exception:
+                self.log.exception(f'Failed to upload file to {bucket_path}')
+        else:
+            self.log.error(f'Failed to upload file {file_path} to {bucket_path}')
         return False
 
     def get_blob(self, blob_path: str) -> storage.Blob | None:
