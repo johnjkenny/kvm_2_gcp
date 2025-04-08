@@ -103,7 +103,7 @@ class GCPDeploy(GCPController):
 
     def __load_startup_script(self):
         try:
-            with open(f'{self.template_dir}/default-startup.sh', 'r') as file:
+            with open(f'{self.template_dir}/gcp-startup.sh', 'r') as file:
                 return file.read()
         except Exception:
             self.log.exception('Failed to load startup script')

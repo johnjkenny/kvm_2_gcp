@@ -268,6 +268,54 @@ class RockyImages(RemoteImage):
         return self._save_cache()
 
 
+class UbuntuImages(RemoteImage):
+    def __init__(self, logger: Logger = None):
+        super().__init__('ubuntu', logger)
+
+    def __get_cloud_versions(self, sort_versions: bool = True):
+        versions = []
+        repo_content = Web(self.log).get_content('https://cloud-images.ubuntu.com/releases/')
+        if repo_content:
+            soup = BeautifulSoup(repo_content, "html.parser")
+            for link in soup.find_all('a', href=True):
+                link: dict
+                href = link["href"].strip("/")
+                if not href.replace(".", "").isdigit():
+                    continue
+                text_after = link.next_sibling
+                if 'END OF LIFE' in text_after or 'END OF REGULAR SUPPORT' in text_after:
+                    continue
+                versions.append(href)
+        if sort_versions:
+            versions.sort()
+        return versions
+
+    def __update_cloud_cache_data(self, version: str, arch: str = 'amd64'):
+        self.log.info(f'Pulling Ubuntu {version}.{arch} remote images')
+        latest_url = f'https://cloud-images.ubuntu.com/releases/{version}/release'
+        contents = Web(self.log).get_content(f'{latest_url}/SHA256SUMS')
+        if contents:
+            for line in contents.splitlines():
+                if f'{arch}.img' in line:
+                    line_split = line.split()
+                    name = line_split[1].replace('*', '')
+                    self.images[name] = {'name': name, 'checksum': line_split[0], 'url': f'{latest_url}/{name}',
+                                         'version': version, 'arch': arch}
+            return True
+        else:
+            self.log.error(f'Failed to get rocky cloud checksum file for version: {version}')
+        return False
+
+    def refresh_cache(self, arch: str = 'amd64'):
+        self.log.info('Refreshing Ubuntu cloud image cache data')
+        self.images = {}
+        for version in self.__get_cloud_versions():
+            if not self.__update_cloud_cache_data(version, arch):
+                self.log.error('Failed to refresh Rocky cloud image cache data')
+                return False
+        return self._save_cache()
+
+
 class GCPImages(GCPController):
     def __init__(self, project_id: str):
         super().__init__()
@@ -282,26 +330,49 @@ class GCPImages(GCPController):
             'cos-cloud': 'cos-117-lts',
         }
 
+    def __save_cache(self, family: str, images: list):
+        try:
+            with open(f'{self.image_dir}/{family}_cache.json', 'w') as cache_file:
+                json.dump(images, cache_file, indent=2)
+                return True
+        except Exception:
+            self.log.exception('Failed to save cache file')
+            return False
+
+    def __load_cache(self, family: str):
+        try:
+            with open(f'{self.image_dir}/{family}_cache.json', 'r') as cache_file:
+                return json.load(cache_file)
+        except Exception:
+            self.log.exception('Failed to load cache file')
+            return []
+
     def get_latest_image(self, family_name: str):
         return self.image_client.get_from_family(project=self.project_id, family=family_name)
 
     def get_image(self, image_name: str):
         return self.image_client.get(project=self.project_id, image=image_name)
 
-    def list_images_from_family(self, search: str):
-        images = []
-        for image in self.image_client.list(project=self.project_id):
-            if image.family and image.family.startswith(search):
-                images.append(image)
-        return images
+    def list_images_from_family(self, family: str, refresh: bool = False):
+        cache_file = Path(f'{self.image_dir}/{family}_cache.json')
+        if refresh or not cache_file.exists():
+            images = []
+            for image in self.image_client.list(project=self.project_id):
+                if image.family and image.family.startswith(family):
+                    images.append(image.name)
+            if images:
+                self.__save_cache(family, images)
+            return images
+        return self.__load_cache(family)
 
-    def display_images(self, family_name: str):
-        images = self.list_images_from_family(family_name)
-        return self.display_info_msg(f'GCP {family_name}:\n  ' + '\n  '.join([image.name for image in images]))
+    def display_images(self, family_name: str, refresh: bool = False):
+        return self.display_info_msg(f'GCP {family_name}:\n  ' + '\n  '.join(self.list_images_from_family(family_name)))
 
     def display_public_image_info(self):
+        max_key_len = max(len(k) for k in self.public_image_info)
+        self.display_info_msg('Project'.ljust(max_key_len) + ' Family')
         for project, family in self.public_image_info.items():
-            self.display_info_msg(f'Project: {project}, Family: {family}')
+            self.display_info_msg(f'{project.ljust(max_key_len)} {family}')
         return True
 
     def __create_image_obj(self, zone: str, vm_name: str, image_name: str,
@@ -336,8 +407,3 @@ class GCPImages(GCPController):
                 return False
             return self._wait_for_global_operation(operation)
         return False
-
-
-'''
-# ToDo: add caching
-'''

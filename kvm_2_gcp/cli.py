@@ -1,7 +1,7 @@
 from argparse import REMAINDER
 
 from kvm_2_gcp.arg_parser import ArgParser
-from kvm_2_gcp.remote_images import RockyImages, GCPImages
+from kvm_2_gcp.remote_images import RockyImages, GCPImages, UbuntuImages
 from kvm_2_gcp.kvm_images import KVMImages
 from kvm_2_gcp.kvm_deploy import KVMDeploy
 from kvm_2_gcp.kvm_controller import KVMController
@@ -157,7 +157,7 @@ def rocky_remote_images(parent_args: list = None):
             'help': 'Download remote image',
         },
         'refresh': {
-            'short': 'r',
+            'short': 'R',
             'help': 'Refresh cache data',
             'action': 'store_true'
         },
@@ -174,14 +174,11 @@ def rocky_remote_images(parent_args: list = None):
 
 def parse_ubuntu_remote_image_args(args: dict):
     if args.get('list'):
-        pass
-        # return RockyImages().display_cache(args['refresh'])
+        return UbuntuImages().display_cache(args['refresh'], 'amd64')
     if args.get('download'):
-        pass
-        # return RockyImages().download_image(args['download'], args['force'])
+        return UbuntuImages().download_image(args['download'], args['force'])
     if args.get('refresh'):
-        pass
-        # return RockyImages().refresh_cache()
+        return UbuntuImages().refresh_cache()
     return True
 
 
@@ -197,9 +194,14 @@ def ubuntu_remote_images(parent_args: list = None):
             'help': 'Download remote image',
         },
         'refresh': {
-            'short': 'r',
+            'short': 'R',
             'help': 'Refresh cache data',
             'action': 'store_true'
+        },
+        'arch': {
+            'short': 'a',
+            'help': 'Architecture to use. Default: amd64 (x86_64)',
+            'default': 'amd64'
         },
         'force': {
             'short': 'F',
@@ -214,7 +216,7 @@ def ubuntu_remote_images(parent_args: list = None):
 
 def parse_gcp_remote_image_args(args: dict):
     if args.get('list'):
-        return GCPImages(args['project']).display_images(args['family'])
+        return GCPImages(args['project']).display_images(args['family'], args['refresh'])
     if args.get('show'):
         return GCPImages(args['project']).display_public_image_info()
     if args.get('clone'):
@@ -261,7 +263,7 @@ def gcp_remote_images(parent_args: list = None):
             'action': 'store_true'
         },
         'refresh': {
-            'short': 'r',
+            'short': 'R',
             'help': 'Refresh cache data',
             'action': 'store_true'
         },

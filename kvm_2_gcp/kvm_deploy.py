@@ -23,7 +23,7 @@ class KVMDeploy(Utils):
         self.__memory = memory
         self.__deploy_dir = Path(f'{self.vm_dir}/{self._name}')
         self.__users = ['ansible']
-        self.__startup = 'default-startup'
+        self.__startup = 'kvm-startup'
         self._playbook = playbook or 'wait_for_startup_marker.yml'
         if add_user:
             user = getpass.getuser()
