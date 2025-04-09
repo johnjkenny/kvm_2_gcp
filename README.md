@@ -1,8 +1,8 @@
 # KVM-2-GCP
 This is a dev/qa/build/IaC/CI-CD tool for KVM and GCP. It allows you to pull remote KVM images from the cloud 
-(Rocky, Ubuntu), deploy VMs using said images locally and configures them to run ansible playbooks via cloud-init.
-It also allows you to create custom build images using ansible and then deploy them locally or in GCP or you to run the
-same build playbooks on GCP instances and create cloud images directly from the GCP VM boot disks. You can use the KVM
+(Rocky, Ubuntu), deploy VMs using said images locally and configure them with ansible playbooks and cloud-init.
+It also allows you to create custom build images using ansible and then deploy them locally or in GCP. It allows you to run
+the same build playbooks on GCP instances and create cloud images directly from the GCP VM boot disks. You can use the KVM
 aspect as a dev/qa environment then deploy your ansible build playbooks to GCP instances to help save on hosting costs.
 You can also use this tool to be run on CI/CD pipelines to build and deploy images to/on GCP.
 
@@ -12,12 +12,12 @@ You can also use this tool to be run on CI/CD pipelines to build and deploy imag
 - Service account with `Compute Admin` role assigned
 - Service account key downloaded in JSON format.
 - Python3.12 (tested with 3.12, but 3.10 and above should work)
+- Tested with Ubuntu 24.04 and Rocky 9.5 KVM hosts
 
 If you plan to push KVM images to GCP then you will also need the following requirements:
 - A bucket created in GCP
-- Service account with `Storage Admin` role assigned
-- `Cloud Build API` and  `VM Migration API` enabled
-- Same service account as above with `Cloud Build Editor` and `Service Account User` roles assigned
+- `Cloud Build API` enabled
+- Same service account as above with `Storage Admin`, `Cloud Build Editor`, and `Service Account User` roles assigned
 
 
 # Usage

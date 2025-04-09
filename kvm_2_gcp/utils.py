@@ -16,12 +16,19 @@ from kvm_2_gcp.encrypt import Cipher
 
 class Utils():
     def __init__(self, service_account: str = 'default', project_id: str = '', logger: Logger = None):
+        """Utils class for KVM to GCP operations
+
+        Args:
+            service_account (str, optional): service account name to use. Defaults to 'default'.
+            project_id (str, optional): GCP project ID to use. Defaults to ''.
+            logger (Logger, optional): logging object to use. Defaults to None.
+        """
         self.log = logger or get_logger('kvm-2-gcp')
         self.service_account = service_account
         self.project_id = project_id
 
     @property
-    def cipher(self):
+    def cipher(self) -> Cipher:
         """Cipher object for encryption/decryption
 
         Returns:
@@ -30,27 +37,57 @@ class Utils():
         return Cipher(self.log)
 
     @property
-    def image_dir(self):
+    def image_dir(self) -> str:
+        """Path to the image directory
+
+        Returns:
+            str: Path to the image directory
+        """
         return '/k2g/images'
 
     @property
-    def vm_dir(self):
+    def vm_dir(self) -> str:
+        """Path to the VM directory
+
+        Returns:
+            str: Path to the VM directory
+        """
         return '/k2g/vms'
 
     @property
-    def template_dir(self):
+    def template_dir(self) -> str:
+        """Path to the template directory
+
+        Returns:
+            str: Path to the template directory
+        """
         return f'{Path(__file__).parent}/templates'
 
     @property
-    def env_dir(self):
+    def env_dir(self) -> str:
+        """Path to the environment directory
+
+        Returns:
+            str: Path to the environment directory
+        """
         return '/k2g/.env'
 
     @property
-    def ansible_private_key(self):
+    def ansible_private_key(self) -> str:
+        """Path to the Ansible private key
+
+        Returns:
+            str: Path to the Ansible private key
+        """
         return f'{self.env_dir}/.ansible_rsa'
 
     @property
-    def ansible_public_key(self):
+    def ansible_public_key(self) -> str:
+        """Path to the Ansible public key
+
+        Returns:
+            str: Path to the Ansible public key
+        """
         return self.ansible_private_key + '.pub'
 
     @property
@@ -63,11 +100,21 @@ class Utils():
         return '/k2g/ansible'
 
     @property
-    def ansible_clients(self):
+    def ansible_clients(self) -> str:
+        """Path to the Ansible clients directory
+
+        Returns:
+            str: Path to the Ansible clients directory
+        """
         return f'{self.ansible_dir}/clients'
 
     @property
-    def ansible_playbooks(self):
+    def ansible_playbooks(self) -> str:
+        """Path to the Ansible playbooks directory
+
+        Returns:
+            str: Path to the Ansible playbooks directory
+        """
         return f'{self.ansible_dir}/playbooks'
 
     @property
@@ -200,6 +247,26 @@ class Utils():
             self.log.exception('Failed to load default service account')
         return ''
 
+    def __create_ansible_client_directory(self, client_dir: Path, name: str, ip: str) -> bool:
+        """Create the Ansible client directory and inventory file
+
+        Args:
+            client_dir (Path): Path to the client directory
+            ip (str): client IP address
+
+        Returns:
+            bool: True on success, False otherwise
+        """
+        try:
+            Path.mkdir(client_dir, parents=True, exist_ok=True)
+            data = f"[all]\n{name} ansible_host={ip}\n"
+            with open(f'{client_dir}/inventory.ini', 'w') as f:
+                f.write(data)
+            return True
+        except Exception:
+            self.log.exception('Failed to create client directory')
+            return False
+
     def _run_cmd(self, cmd: str, ignore_error: bool = False, log_output: bool = False) -> tuple:
         """Run a command and return the output
 
@@ -266,26 +333,6 @@ class Utils():
         except Exception:
             self.log.exception('Failed to get default project ID')
         return ''
-
-    def __create_ansible_client_directory(self, client_dir: Path, name: str, ip: str) -> bool:
-        """Create the Ansible client directory and inventory file
-
-        Args:
-            client_dir (Path): Path to the client directory
-            ip (str): client IP address
-
-        Returns:
-            bool: True on success, False otherwise
-        """
-        try:
-            Path.mkdir(client_dir, parents=True, exist_ok=True)
-            data = f"[all]\n{name} ansible_host={ip}\n"
-            with open(f'{client_dir}/inventory.ini', 'w') as f:
-                f.write(data)
-            return True
-        except Exception:
-            self.log.exception('Failed to create client directory')
-            return False
 
     def _delete_ansible_client_directory(self, client_name: str) -> bool:
         """Delete the Ansible client directory
