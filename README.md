@@ -387,6 +387,7 @@ GCP ubuntu-2404-lts-amd64:
 ```
 
 4. Create an image from a GCP VM boot disk:
+
 This next step creates an image from an already deployed VM in GCP. The VM needs to be stopped before creating the
 image. If it is running you will be prompted to stop it unless you use the `--force` option.
 
@@ -466,6 +467,7 @@ Images:
 ```
 
 4. Upload Image to GCP:
+
 We will cover `--uploadGCP` option further down in the document under KVM Image Upload section
 
 
@@ -564,6 +566,7 @@ ssh -i /k2g/.env/.ansible_rsa ansible@192.168.124.75
 ```
 
 3. Build Image:
+
 The build command allows you to specify an ansible build playbook to run on the VM after it has been deployed. It will
 then create a qcow2 image from the VM and store it in `/k2g/images`. On a successful build the VM will be deleted and
 you can then deploy VMs from your custom image. The image will have the ansible user embedded with its public key. If
