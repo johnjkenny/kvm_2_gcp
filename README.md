@@ -202,6 +202,7 @@ Rocky Remote Images:
 ```
 
 3. Download a Remote Image:
+
 Since we are using KVM it makes sense to stick to `qcow2` images. In this example we are going to download the
 latest Rocky generic image, `Rocky-9-GenericCloud-Base-9.5-20241118.0.x86_64.qcow2`. Local images are stored in
 `/k2g/images` and a download progress bar is shown on console to help keep track of the download. After the download is
@@ -854,9 +855,11 @@ options:
 ```
 
 1. List network info:
+
 Depending on the state of the VM you will get different output and that is due to how the information is gathered.
 If the VM is running we use the `virsh guestinfo` command to get the network info including the assigned IP
 address. If the VM is not running we use the `virsh dumpxml` command to get the network interface data
+
 ```bash
 # powered off:
 k2g -c -v vm-d9a7792d -n -l                  
@@ -881,6 +884,7 @@ k2g -c -v vm-d9a7792d -n -l
 ```
 
 2. Add a network interface:
+
 If you are adding a network interface to a powered on VM then it will seem like it is taking a long time to add. This
 is because we are waiting for the IP address to populate which takes about 15 seconds.
 
@@ -1021,6 +1025,7 @@ k2g -c -v vm-d9a7792d -d -l
 ```
 
 2. Add a disk:
+
 The add disk command will create the disk image, assign the disk to the VM, then if the VM is powered on it will
 run an ansible playbook that will format the disk to the specified filesystem type and then mount the disk to the
 specified mount point. An `fstab` entry will also be created using the device's UUID. The default filesystem type
@@ -1157,6 +1162,7 @@ k2g -c -v vm-c3183891 -d -l
 ```
 
 3. Remove a disk:
+
 The remove disk command will unmount the disk on OS, remove the fstab entry, remove the disk from the VM, then it will
 prompt you if you would like to delete the disk image. You can use the `--force` or `-F` option to force the delete
 operation without prompting.
@@ -1187,6 +1193,7 @@ Delete disk /k2g/vms/vm-05b3351b/data-xfs1.qcow2 from vm-05b3351b? [y/n]: y
 ```
 
 4. Umount/Remount a disk:
+
 You can unmount a disk using the `-u` option and you can remount a disk using the `-rm` option. When remounting, you can
 select a new mount point using the `-m` option.
 
@@ -1255,6 +1262,7 @@ df -Th | grep new
 ```
 
 5. Increase disk size:
+
 The increase disk size command requires the VM to be powered off. If you run the command while the VM is powered on
 you will be prompted to power off the VM unless you use the `--force` option. The command will increase the disk size
 of the specified disk by the specified size. After the resize the VM will be powered on and the disk will be resized
@@ -1595,10 +1603,10 @@ Waiting for 33.224.114.110:22 to be open
 ```
 
 3. Build GCP image:
+
 The following example will deploy a VM in GCP using latest Rocky 9.5 image and then uses ansible to install docker
 and three containers on the VM; nginx, php and mysql. The VM will then be powered off and an image will be
 created from the VM boot disk. The VM will then be deleted.
-
 
 ```bash
 # list available builds:
@@ -1723,6 +1731,8 @@ f4eca0f1c5c0   app1_db    "/custom-entrypoint.…"   6 minutes ago   Up 27 secon
 ```
 
 # Remote Controller (GCP)
+The remote controller allows you to manage GCP VM instances. The command is `k2g -rc`. The command has options to
+list instances, start, stop, reboot and delete instances. The command will use the default GCP project and zone
 
 ```bash
 # command options:
