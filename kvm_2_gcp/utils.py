@@ -125,6 +125,7 @@ class Utils():
             dict: Ansible environment variables
         """
         return {
+            'ANSIBLE_HOST_KEY_CHECKING': False,
             'ANSIBLE_CONFIG': f'{self.ansible_dir}/ansible.cfg',
             'ANSIBLE_PYTHON_INTERPRETER': '/usr/bin/python3',
             'ANSIBLE_PRIVATE_KEY_FILE': self.ansible_private_key,
